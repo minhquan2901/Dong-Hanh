@@ -1,0 +1,733 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>StudySync | Học sinh</title>
+    <link rel="icon" href="/static/studysync-icon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700&family=Nunito+Sans:wght@400;600;700;800&display=swap&subset=vietnamese" rel="stylesheet" />
+    <style>
+      :root {
+        --bg: #f8fafc;
+        --card: #fff;
+        --line: #dbe5f0;
+        --primary: #2563eb;
+        --primary-dark: #1d4ed8;
+        --primary-soft: #eff6ff;
+        --secondary: #0f9f9a;
+        --secondary-soft: #e6fffb;
+        --success: #16a34a;
+        --warning: #f59e0b;
+        --danger: #dc2626;
+        --text: #0f172a;
+        --muted: #64748b;
+        --shadow: 0 14px 34px rgba(30, 64, 175, .08);
+      }
+      body.dark {
+        --bg: #0f172a;
+        --card: #172033;
+        --line: #2d3b55;
+        --primary-soft: #1d3461;
+        --secondary-soft: #123c3d;
+        --text: #e6edf7;
+        --muted: #9fb0c6;
+        --shadow: 0 14px 34px rgba(0, 0, 0, .18);
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; font-family: 'Nunito Sans', sans-serif; background: radial-gradient(circle at 8% 0%, #e0f2fe 0, transparent 28%), var(--bg); color: var(--text); transition: background .2s ease, color .2s ease; }
+      h1, h2, h3, .brand { font-family: 'Baloo 2', sans-serif; }
+      button, input, select { font: inherit; }
+      .topbar { display: flex; align-items: center; justify-content: space-between; padding: 16px 28px; background: var(--card); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 10; backdrop-filter: blur(12px); }
+      .brand { display: inline-flex; align-items: center; gap: 12px; font-weight: 800; }
+      .brand-badge { width: 38px; height: 38px; border-radius: 12px; background: linear-gradient(135deg, var(--primary), #60a5fa); color: #fff; display: grid; place-items: center; box-shadow: 0 8px 18px rgba(37, 99, 235, .22); }
+      .user-pill { display: flex; align-items: center; gap: 12px; }
+      .avatar { width: 38px; height: 38px; border-radius: 50%; background: #dfeeff; color: var(--primary); display: grid; place-items: center; font-weight: 700; }
+      .logout, .theme-toggle { padding: 9px 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--text); cursor: pointer; transition: transform .18s ease, border-color .18s ease, color .18s ease; }
+      .logout:hover, .theme-toggle:hover { transform: translateY(-2px); border-color: var(--primary); color: var(--primary); }
+      .container { max-width: 1200px; margin: 0 auto; padding: 26px 18px 40px; }
+      .taskbar { display: flex; gap: 8px; margin: 22px 0 0; padding: 6px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); overflow-x: auto; scrollbar-width: thin; }
+      .taskbar a { flex: 0 0 auto; color: var(--muted); text-decoration: none; padding: 10px 14px; border-radius: 9px; font-size: .9rem; font-weight: 700; white-space: nowrap; }
+      .taskbar a:hover, .taskbar a.active { color: var(--primary); background: var(--primary-soft); }
+      .view { display: none; margin-top: 24px; }
+      .view.active { display: block; animation: view-in .2s ease-out; }
+      @keyframes view-in { from { opacity: .35; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+      .hero { background: linear-gradient(135deg, #eaf2ff, #e8fffa 68%, #fff7ed); border: 1px solid #cfe0f5; border-radius: 22px; padding: 28px; display: flex; align-items: center; justify-content: space-between; gap: 20px; box-shadow: var(--shadow); }
+      .link-box { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 14px; background: linear-gradient(135deg, rgba(31,111,235,0.12), rgba(34,197,94,0.08)); border: 1px solid rgba(31,111,235,0.18); min-width: 260px; }
+      .link-box small { display: block; color: var(--muted); font-size: .72rem; letter-spacing: .04em; text-transform: uppercase; }
+      .link-box strong { display: block; font-size: 1.3rem; margin-top: 6px; }
+      .copy-code { border: 0; border-radius: 10px; background: var(--primary); color: #fff; padding: 9px 12px; font-weight: 700; cursor: pointer; }
+      .copy-code.copied { background: #16a34a; }
+      h1 { margin: 6px 0 8px; font-size: clamp(2.2rem, 4vw, 3.2rem); line-height: .98; }
+      .sub { color: var(--muted); margin: 0; }
+      .status { display: flex; align-items: center; gap: 10px; background: #e8fff2; border: 1px solid #bbf7d0; color: #166534; padding: 10px 12px 10px 16px; border-radius: 10px; font-weight: 700; }
+      .dismiss-status, .dismiss-notification { border: 0; background: transparent; color: currentColor; cursor: pointer; font-size: 1.15rem; line-height: 1; opacity: .65; padding: 2px 4px; }
+      .dismiss-status:hover, .dismiss-notification:hover { opacity: 1; }
+      .stats { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 18px; margin-top: 24px; }
+      .card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 20px; box-shadow: var(--shadow); }
+      .label { font-size: .82rem; color: var(--muted); }
+      .value { font-size: 2rem; font-weight: 800; margin-top: 10px; }
+      .progress-insight { display: grid; grid-template-columns: 180px 1fr; gap: 24px; align-items: center; margin-top: 24px; }
+      .progress-ring { width: 148px; height: 148px; border-radius: 50%; display: grid; place-items: center; background: conic-gradient(var(--secondary) var(--progress, 0%), #dbeafe 0); position: relative; }
+      .progress-ring::after { content: ''; position: absolute; inset: 12px; border-radius: 50%; background: var(--card); }
+      .progress-ring-content { position: relative; z-index: 1; text-align: center; }
+      .progress-ring-content strong { display: block; font-size: 1.8rem; line-height: 1; }
+      .progress-ring-content small { color: var(--muted); font-size: .72rem; }
+      .subject-progress { display: grid; gap: 12px; }
+      .subject-row { display: grid; gap: 6px; }
+      .subject-label { display: flex; justify-content: space-between; font-size: .86rem; font-weight: 700; }
+      .progress-track { height: 9px; border-radius: 99px; background: #e2e8f0; overflow: hidden; }
+      .progress-fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--primary), var(--secondary)); transition: width .5s ease; }
+      .grid { display: grid; grid-template-columns: 1.15fr .85fr; gap: 22px; margin-top: 28px; }
+      .panel-title { font-size: 1.25rem; font-weight: 700; margin: 0 0 16px; }
+      .schedule, .tasks { display: grid; gap: 14px; }
+      .schedule-row, .task-item { display: flex; justify-content: space-between; gap: 12px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+      .schedule-row strong, .task-item strong { display: block; margin-bottom: 4px; }
+      .schedule-table-wrap { overflow-x: auto; }
+      .schedule-table { width: 100%; min-width: 720px; border-collapse: collapse; table-layout: fixed; }
+      .schedule-table th, .schedule-table td { border: 1px solid var(--line); text-align: center; }
+      .schedule-table th { padding: 12px 8px; background: #f4f7fb; color: var(--text); font-size: .84rem; }
+      .schedule-table th:first-child { width: 88px; }
+      .schedule-table td { height: 70px; padding: 6px; vertical-align: middle; }
+      .schedule-table td.period { background: #f8fafc; color: var(--muted); font-weight: 700; }
+      .schedule-cell { min-height: 56px; display: grid; align-content: center; gap: 4px; border-radius: 8px; padding: 5px; }
+      .schedule-cell.has-lesson { background: #eef6ff; color: var(--primary-dark, #154ea8); }
+      .schedule-cell strong { font-size: .82rem; }
+      .schedule-cell small { color: var(--muted); font-size: .68rem; }
+      .schedule-actions { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 14px; }
+      .edit-button, .save-button, .cancel-button { border: 0; border-radius: 9px; padding: 9px 13px; font-weight: 700; cursor: pointer; }
+      .edit-button, .save-button { background: var(--primary); color: #fff; }
+      .cancel-button { background: #eef2f7; color: var(--text); }
+      .schedule-editor { display: none; grid-template-columns: repeat(5, minmax(110px, 1fr)); gap: 10px; padding: 14px; margin-bottom: 18px; border: 1px solid var(--line); border-radius: 12px; background: #f8fbff; }
+      .schedule-editor.open { display: grid; }
+      .schedule-editor label { display: grid; gap: 5px; color: var(--muted); font-size: .75rem; font-weight: 700; }
+      .schedule-editor input, .schedule-editor select { width: 100%; min-height: 36px; border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; background: #fff; }
+      .schedule-editor .editor-actions { display: flex; align-items: end; gap: 8px; }
+      .cell-actions { display: none; gap: 4px; justify-content: center; }
+      .editing .cell-actions { display: flex; }
+      .cell-action { border: 0; border-radius: 6px; padding: 3px 6px; color: var(--primary); background: #dceaff; cursor: pointer; font-size: .68rem; }
+      .task-tools { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 16px; }
+      .task-tools select { border: 1px solid var(--line); border-radius: 8px; padding: 9px; background: #fff; }
+      .add-task-button { border: 0; border-radius: 9px; padding: 9px 13px; background: var(--primary); color: #fff; font-weight: 700; cursor: pointer; }
+      .task-editor { display: none; grid-template-columns: 1.2fr 1fr 1fr 1fr auto; gap: 9px; padding: 13px; margin-bottom: 16px; background: #f8fbff; border: 1px solid var(--line); border-radius: 12px; }
+      .task-editor.open { display: grid; }
+      .task-editor input, .task-editor select { width: 100%; min-height: 36px; border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; background: #fff; }
+      .task-item { align-items: flex-start; }
+      .task-content { flex: 1; }
+      .task-actions { display: flex; gap: 6px; align-items: center; }
+      .task-action { border: 0; border-radius: 7px; padding: 7px 9px; font-size: .72rem; font-weight: 700; cursor: pointer; }
+      .task-action.complete { background: #eafaf3; color: var(--success); }
+      .task-action.delete { background: #fff1f2; color: #b42318; }
+      .notification-list { display: grid; gap: 10px; margin-top: 22px; }
+      .notification { padding: 12px 14px; border-left: 4px solid var(--primary); border-radius: 10px; background: var(--primary-soft); }
+      .notification.warning { border-color: var(--warning); background: #fff8eb; }
+      .notification.danger { border-color: #dc2626; background: #fff1f2; }
+      .notification strong { display: block; margin-bottom: 4px; }
+      .notification small { color: var(--muted); }
+      .link-inbox { margin-top: 18px; padding: 14px; border: 1px solid #fed7aa; border-radius: 12px; background: #fff7ed; }
+      .link-request { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid #fed7aa; }
+      .link-request:last-child { border-bottom: 0; padding-bottom: 0; }
+      .link-request strong, .link-request small { display: block; }
+      .link-request small { color: var(--muted); margin-top: 3px; }
+      .link-request-actions { display: flex; gap: 7px; flex-wrap: wrap; }
+      .link-request-actions button { border: 0; border-radius: 8px; padding: 7px 10px; font-weight: 800; cursor: pointer; }
+      .accept-link { background: #dcfce7; color: #166534; }
+      .reject-link { background: #fee2e2; color: #991b1b; }
+      .web-notification-toggle { border: 1px solid var(--primary); border-radius: 9px; padding: 8px 11px; background: var(--primary-soft); color: var(--primary-dark); font-weight: 800; cursor: pointer; }
+      .web-notification-toggle.enabled { border-color: var(--success); background: #eafaf3; color: #166534; }
+      .toast-stack { position: fixed; right: 20px; bottom: 20px; z-index: 30; display: grid; gap: 10px; width: min(360px, calc(100vw - 32px)); }
+      .web-toast { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 15px 16px; background: var(--card); border: 1px solid var(--line); border-left: 5px solid var(--secondary); border-radius: 14px; box-shadow: 0 18px 40px rgba(15, 23, 42, .18); animation: toast-in .25s ease-out; }
+      .toast-content { display: flex; align-items: flex-start; gap: 10px; }
+      .toast-content img { width: 30px; height: 30px; flex: 0 0 30px; border-radius: 8px; }
+      .web-toast strong { display: block; margin-bottom: 4px; }
+      .web-toast p { margin: 0; color: var(--muted); font-size: .86rem; }
+      .web-toast button { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 1.2rem; }
+      @keyframes toast-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+      .meta { color: var(--muted); font-size: .85rem; }
+      .tag { padding: 6px 8px; border-radius: 999px; font-size: .75rem; font-weight: 700; }
+      .tag.warning { background: #fff4db; color: #9a5a00; }
+      .tag.success { background: #eafaf3; color: #187b58; }
+      .security-form { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)) auto; align-items: end; gap: 10px; }
+      .security-form label { display: grid; gap: 5px; color: var(--muted); font-size: .8rem; font-weight: 700; }
+      .security-form input { width: 100%; min-height: 40px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--card); color: var(--text); }
+      .security-message { min-height: 1.4em; margin-top: 12px; color: var(--muted); }
+      .security-save { min-height: 40px; border: 0; border-radius: 8px; padding: 8px 14px; color: white; background: var(--primary); font-weight: 700; cursor: pointer; }
+      .pin-login-setting { display: grid; grid-template-columns: auto minmax(180px, 1fr) minmax(180px, 1fr) auto; align-items: end; gap: 10px; margin-top: 18px; }
+      .pin-login-toggle { display: flex !important; align-items: center; gap: 8px !important; min-height: 40px; color: var(--text) !important; white-space: nowrap; }
+      .pin-login-toggle input { width: auto !important; min-height: 0 !important; }
+      .pin-setting-field { display: grid; gap: 5px; color: var(--muted); font-size: .8rem; font-weight: 700; }
+      .pin-setting-field input { width: 100%; min-height: 40px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--card); color: var(--text); }
+      .controls button:hover, .add-task-button:hover, .save-button:hover, .copy-code:hover, .security-save:hover { transform: translateY(-2px); background: var(--primary-dark); }
+      @media (max-width: 900px) { .stats { grid-template-columns: repeat(2, minmax(140px,1fr)); } .grid { grid-template-columns: 1fr; } }
+      @media (max-width: 560px) { .stats { grid-template-columns: 1fr; } .topbar { flex-wrap: wrap; gap: 12px; } .hero { flex-direction: column; align-items: flex-start; } .progress-insight { grid-template-columns: 1fr; justify-items: center; } .subject-progress { width: 100%; } }
+      @media (max-width: 700px) { .schedule-editor, .task-editor, .security-form, .pin-login-setting { grid-template-columns: 1fr 1fr; } .task-tools { align-items: stretch; flex-direction: column; } }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand"><span class="brand-badge">S</span> StudySync</div>
+      <div class="user-pill">
+        <div class="avatar" id="avatar">HS</div>
+        <div>
+          <div id="user-name">Học sinh</div>
+          <small id="user-role">Student</small>
+        </div>
+        <button id="theme-toggle" class="theme-toggle" type="button">Chế độ tối</button>
+        <button id="web-notification-toggle" class="web-notification-toggle" type="button">Bật thông báo web</button>
+        <button class="logout" type="button" onclick="logout()">Đăng xuất</button>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="hero">
+        <div>
+          <p class="sub">Bảng điều khiển học sinh</p>
+          <h1 id="welcome-name">Xin chào</h1>
+          <p class="sub" id="student-meta">Lớp 10A1</p>
+        </div>
+        <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap; justify-content: flex-end;">
+          <div class="link-box">
+            <div>
+              <small>Mã liên kết</small>
+              <strong id="student-code-badge">HS-001</strong>
+            </div>
+            <button id="copy-student-code" class="copy-code" type="button">Copy</button>
+          </div>
+          <div class="status" id="overall-status"><span id="overall-status-text">Tốt: tiến độ học tập đang ổn định</span><button class="dismiss-status" id="dismiss-status" type="button" aria-label="Ẩn thông báo">×</button></div>
+        </div>
+      </section>
+
+      <nav class="taskbar" aria-label="Điều hướng học sinh">
+        <a class="active" href="#overview">Tổng quan</a>
+        <a href="#schedule">Thời khóa biểu</a>
+        <a href="#assignments">Nhiệm vụ</a>
+        <a href="#security">Bảo mật</a>
+      </nav>
+
+      <section id="overview" class="view active">
+        <section class="stats" id="stats-grid"></section>
+        <section class="card progress-insight" aria-labelledby="progress-title">
+          <div class="progress-ring" id="progress-ring">
+            <div class="progress-ring-content"><strong id="progress-value">0%</strong><small>tiến độ chung</small></div>
+          </div>
+          <div>
+            <h2 id="progress-title" class="panel-title">Tiến độ tuần này</h2>
+            <p class="sub" style="margin-bottom: 14px;">Theo dõi nhanh các môn đang hoàn thành tốt và phần cần tập trung.</p>
+            <div id="subject-progress" class="subject-progress"></div>
+          </div>
+        </section>
+        <div class="card" style="margin-top: 24px;">
+          <h2 class="panel-title">Tóm tắt hôm nay</h2>
+          <p class="sub">Chọn Thời khóa biểu hoặc Nhiệm vụ trên thanh điều hướng để xem chi tiết.</p>
+          <div id="notification-list" class="notification-list"></div>
+          <div id="link-inbox" class="link-inbox"></div>
+        </div>
+      </section>
+
+      <section id="schedule" class="view">
+        <div class="card">
+          <h2 class="panel-title">Thời khóa biểu</h2>
+          <p class="sub" style="margin-bottom: 16px;">Mỗi ô thể hiện môn học theo thứ và tiết.</p>
+          <div class="schedule-actions">
+            <button id="edit-schedule-button" class="edit-button" type="button">Chỉnh sửa thời khóa biểu</button>
+          </div>
+          <form id="schedule-editor" class="schedule-editor">
+            <label>Buổi<select id="editor-session"><option value="morning">Buổi sáng</option><option value="afternoon">Buổi chiều</option></select></label>
+            <label>Thứ<select id="editor-day"><option value="2">Thứ 2</option><option value="3">Thứ 3</option><option value="4">Thứ 4</option><option value="5">Thứ 5</option><option value="6">Thứ 6</option><option value="7">Thứ 7</option></select></label>
+            <label>Tiết<select id="editor-period"><option value="1">Tiết 1</option><option value="2">Tiết 2</option><option value="3">Tiết 3</option><option value="4">Tiết 4</option><option value="5">Tiết 5</option></select></label>
+            <label>Môn học<input id="editor-subject" required placeholder="Ví dụ: Toán"></label>
+            <label>Giáo viên<input id="editor-lecturer" placeholder="Ví dụ: T.Thọ"></label>
+            <div class="editor-actions"><button class="save-button" type="submit">Lưu tiết</button><button id="cancel-edit" class="cancel-button" type="button">Hủy</button></div>
+          </form>
+          <h3 class="panel-title" style="font-size: 1rem;">Buổi sáng</h3>
+          <div id="morning-schedule" class="schedule-table-wrap"></div>
+          <h3 class="panel-title" style="font-size: 1rem; margin-top: 24px;">Buổi chiều</h3>
+          <div id="afternoon-schedule" class="schedule-table-wrap"></div>
+          <div id="schedule-list" class="schedule"></div>
+        </div>
+      </section>
+
+      <section id="assignments" class="view">
+        <div class="card">
+          <h2 class="panel-title">Bài tập cần hoàn thành</h2>
+          <div class="task-tools">
+            <select id="task-filter" aria-label="Lọc nhiệm vụ"><option value="all">Tất cả nhiệm vụ</option><option value="pending">Chưa hoàn thành</option><option value="completed">Đã hoàn thành</option></select>
+            <button id="add-task-button" class="add-task-button" type="button">+ Thêm nhiệm vụ</button>
+          </div>
+          <form id="task-editor" class="task-editor">
+            <input id="task-title" required placeholder="Tên nhiệm vụ">
+            <input id="task-subject" required placeholder="Môn học">
+            <input id="task-due-date" required type="date">
+            <select id="task-priority"><option>Trung bình</option><option>Cao</option><option>Quan trọng</option><option>Thấp</option></select>
+            <button class="save-button" type="submit">Lưu</button>
+          </form>
+          <div id="task-list" class="tasks"></div>
+        </div>
+      </section>
+
+      <section id="security" class="view card" style="padding: 22px;">
+        <h2 class="panel-title">Bảo mật đăng nhập</h2>
+        <p class="sub" style="margin-bottom: 16px;">Đăng ký mã PIN và chọn có yêu cầu PIN sau mật khẩu khi đăng nhập hay không.</p>
+        <form id="security-form" class="security-form">
+          <label>Mật khẩu hiện tại<input id="security-password" type="password" autocomplete="current-password" required /></label>
+          <label>PIN mới (4-8 số)<input id="security-pin" type="password" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="new-password" required /></label>
+          <label>Nhập lại PIN<input id="security-pin-confirm" type="password" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="new-password" required /></label>
+          <button class="security-save" type="submit">Lưu PIN</button>
+        </form>
+        <div id="security-message" class="security-message" role="status"></div>
+        <form id="pin-login-setting-form" class="pin-login-setting">
+          <label class="pin-login-toggle"><input id="pin-login-enabled" type="checkbox" /> Yêu cầu PIN khi đăng nhập</label>
+          <label class="pin-setting-field">Mật khẩu hiện tại<input id="pin-setting-password" type="password" autocomplete="current-password" required /></label>
+          <label id="pin-setting-current-wrap" class="pin-setting-field" hidden>PIN hiện tại để tắt<input id="pin-setting-current" type="password" inputmode="numeric" pattern="[0-9]{4,8}" maxlength="8" autocomplete="current-password" /></label>
+          <button class="security-save" type="submit">Cập nhật bảo mật</button>
+        </form>
+        <div id="pin-login-setting-message" class="security-message" role="status"></div>
+      </section>
+    </main>
+    <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
+
+    <script>
+      const user = JSON.parse(localStorage.getItem('study_sync_user') || 'null');
+      if (!user || user.role !== 'student') {
+        window.location.href = '/login';
+      }
+
+      const avatarEl = document.getElementById('avatar');
+      const userNameEl = document.getElementById('user-name');
+      const welcomeNameEl = document.getElementById('welcome-name');
+      const studentMetaEl = document.getElementById('student-meta');
+      const studentCodeBadgeEl = document.getElementById('student-code-badge');
+      const overallStatusEl = document.getElementById('overall-status');
+      const overallStatusTextEl = document.getElementById('overall-status-text');
+      const taskbarLinks = document.querySelectorAll('.taskbar a');
+      const views = document.querySelectorAll('.view');
+      const editor = document.getElementById('schedule-editor');
+      const editScheduleButton = document.getElementById('edit-schedule-button');
+      const scheduleData = { morning: [], afternoon: [] };
+      let assignmentsData = [];
+      let taskFilter = 'all';
+      const themeKey = `studysync-theme-${user.username}`;
+      const dismissedStatusKey = `studysync-status-hidden-${user.username}`;
+      const dismissedNotificationsKey = `studysync-notifications-hidden-${user.username}`;
+      const themeToggle = document.getElementById('theme-toggle');
+      const webNotificationToggle = document.getElementById('web-notification-toggle');
+      const toastStack = document.getElementById('toast-stack');
+      const seenAlertsKey = `studysync-seen-alerts-${user.username}`;
+
+      function updateWebNotificationButton() {
+        const enabled = localStorage.getItem(`studysync-web-notifications-${user.username}`) === 'true';
+        webNotificationToggle.classList.toggle('enabled', enabled);
+        webNotificationToggle.textContent = enabled ? 'Đã bật thông báo' : 'Bật thông báo web';
+      }
+
+      webNotificationToggle.addEventListener('click', async () => {
+        if (!('Notification' in window)) {
+          showWebToast('Thông báo web', 'Trình duyệt này không hỗ trợ thông báo hệ thống.');
+          return;
+        }
+        const permission = await Notification.requestPermission();
+        if (permission === 'granted') {
+          localStorage.setItem(`studysync-web-notifications-${user.username}`, 'true');
+          updateWebNotificationButton();
+          showWebToast('Đã bật thông báo web', 'Bạn sẽ nhận được nhắc nhở ngay trên trình duyệt.');
+        } else {
+          showWebToast('Chưa bật thông báo', 'Bạn có thể cho phép thông báo trong cài đặt trình duyệt.');
+        }
+      });
+      updateWebNotificationButton();
+
+      function showWebToast(title, message) {
+        const toast = document.createElement('div');
+        toast.className = 'web-toast';
+        toast.innerHTML = `<div class="toast-content"><img src="/static/studysync-icon.svg" alt="" /><div><strong>${title}</strong><p>${message}</p></div></div><button type="button" aria-label="Đóng">×</button>`;
+        toast.querySelector('button').addEventListener('click', () => toast.remove());
+        toastStack.appendChild(toast);
+        window.setTimeout(() => toast.remove(), 6500);
+      }
+
+      function notifyNewAlerts(alerts) {
+        const seen = JSON.parse(localStorage.getItem(seenAlertsKey) || '[]');
+        alerts.forEach((alert) => {
+          const key = `${alert.level}|${alert.title}|${alert.message}`;
+          if (seen.includes(key)) return;
+          seen.push(key);
+          showWebToast(alert.title, alert.message);
+          if (Notification.permission === 'granted') {
+            new Notification(alert.title, { body: alert.message, icon: '/static/studysync-icon.svg', badge: '/static/studysync-icon.svg' });
+          }
+        });
+        localStorage.setItem(seenAlertsKey, JSON.stringify(seen.slice(-30)));
+      }
+
+      if (localStorage.getItem(dismissedStatusKey) === 'true') {
+        document.getElementById('overall-status').hidden = true;
+      }
+      document.getElementById('dismiss-status').addEventListener('click', () => {
+        document.getElementById('overall-status').hidden = true;
+        localStorage.setItem(dismissedStatusKey, 'true');
+      });
+
+      function setTheme(theme) {
+        document.body.classList.toggle('dark', theme === 'dark');
+        themeToggle.textContent = theme === 'dark' ? 'Chế độ sáng' : 'Chế độ tối';
+        localStorage.setItem(themeKey, theme);
+      }
+      setTheme(localStorage.getItem(themeKey) || 'light');
+      themeToggle.addEventListener('click', () => setTheme(document.body.classList.contains('dark') ? 'light' : 'dark'));
+
+      function setScheduleEditor(open) {
+        editor.classList.toggle('open', open);
+        document.getElementById('schedule').classList.toggle('editing', open);
+        editScheduleButton.textContent = open ? 'Đang chỉnh sửa' : 'Chỉnh sửa thời khóa biểu';
+      }
+
+      editScheduleButton.addEventListener('click', async () => {
+        setScheduleEditor(!editor.classList.contains('open'));
+      });
+      document.getElementById('cancel-edit').addEventListener('click', () => setScheduleEditor(false));
+      editor.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const payload = {
+          session: document.getElementById('editor-session').value,
+          day: document.getElementById('editor-day').value,
+          period: Number(document.getElementById('editor-period').value),
+          subject: document.getElementById('editor-subject').value.trim(),
+          lecturer: document.getElementById('editor-lecturer').value.trim(),
+        };
+        const response = await fetch('/api/schedule/slot', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const result = await response.json();
+        if (!response.ok) { showWebToast('Không thể cập nhật lịch', result.detail || 'Vui lòng thử lại.'); return; }
+        showWebToast(result.notification?.title || 'Đã cập nhật thời khóa biểu', result.notification?.message || result.message);
+        setScheduleEditor(false);
+        await loadDashboard();
+        showView('schedule');
+      });
+
+      document.getElementById('task-filter').addEventListener('change', (event) => {
+        taskFilter = event.target.value;
+        renderTasks(assignmentsData);
+      });
+      document.getElementById('add-task-button').addEventListener('click', () => {
+        document.getElementById('task-editor').classList.toggle('open');
+      });
+      document.getElementById('task-editor').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const payload = {
+          title: document.getElementById('task-title').value.trim(),
+          subject: document.getElementById('task-subject').value.trim(),
+          due_date: document.getElementById('task-due-date').value,
+          priority: document.getElementById('task-priority').value,
+        };
+        const response = await fetch('/api/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const result = await response.json();
+        if (!response.ok) { showWebToast('Không thể thêm nhiệm vụ', result.detail || 'Vui lòng thử lại.'); return; }
+        showWebToast('Đã thêm nhiệm vụ', `Nhiệm vụ "${payload.title}" đã được lưu.`);
+        event.target.reset();
+        event.target.classList.remove('open');
+        await loadDashboard();
+        showView('assignments');
+      });
+
+      function showView(viewId, updateHistory = true) {
+        const targetId = document.getElementById(viewId) ? viewId : 'overview';
+        views.forEach((view) => view.classList.toggle('active', view.id === targetId));
+        taskbarLinks.forEach((link) => link.classList.toggle('active', link.getAttribute('href') === `#${targetId}`));
+        if (updateHistory && window.location.hash !== `#${targetId}`) window.history.pushState(null, '', `#${targetId}`);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+
+      taskbarLinks.forEach((link) => link.addEventListener('click', (event) => {
+        event.preventDefault();
+        showView(link.getAttribute('href').slice(1));
+      }));
+      window.addEventListener('hashchange', () => showView(window.location.hash.slice(1), false));
+
+      avatarEl.textContent = user.avatar || (user.full_name || user.username || 'HS').split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase();
+      userNameEl.textContent = user.full_name || user.username;
+      welcomeNameEl.textContent = `Xin chào, ${user.full_name || user.username}`;
+      studentMetaEl.textContent = user.class_name ? `Lớp ${user.class_name}` : 'Học sinh';
+      const studentCode = user.student_id || 'HS-000';
+      studentCodeBadgeEl.textContent = studentCode;
+
+      document.getElementById('copy-student-code').addEventListener('click', async () => {
+        const button = document.getElementById('copy-student-code');
+        try {
+          await navigator.clipboard.writeText(studentCode);
+          button.textContent = 'Đã copy';
+          button.classList.add('copied');
+          setTimeout(() => {
+            button.textContent = 'Copy';
+            button.classList.remove('copied');
+          }, 1200);
+        } catch (error) {
+          button.textContent = 'Lỗi';
+          setTimeout(() => { button.textContent = 'Copy'; }, 1200);
+        }
+      });
+
+      async function loadDashboard() {
+        const response = await fetch(`/api/dashboard/student?username=${encodeURIComponent(user.username)}`);
+        const data = await response.json();
+        assignmentsData = data.assignments;
+        renderNotifications(data.alerts || []);
+        notifyNewAlerts(data.alerts || []);
+        await loadLinkInbox();
+        renderStats(data.stats);
+        renderSchedule(data.schedule);
+        renderTasks(data.assignments);
+        if (data.stats.completion_rate >= 80) overallStatusTextEl.textContent = 'Tốt: tiến độ học tập đang ổn định';
+        else if (data.stats.completion_rate >= 50) overallStatusTextEl.textContent = 'Cần chú ý: nên hoàn thành thêm 1–2 nhiệm vụ để duy trì tiến độ';
+        else overallStatusTextEl.textContent = 'Nhắc nhở: hãy bắt đầu sớm các nhiệm vụ còn lại để không bị chậm';
+      }
+
+      async function loadLinkInbox() {
+        const inbox = document.getElementById('link-inbox');
+        const response = await fetch(`/api/student/link-requests?username=${encodeURIComponent(user.username)}`);
+        if (!response.ok) return;
+        const data = await response.json();
+        const pending = (data.requests || []).filter((item) => item.status === 'pending');
+        if (!pending.length) {
+          inbox.hidden = false;
+          inbox.innerHTML = '<strong>Hộp thư liên kết</strong><p class="sub" style="margin: 5px 0 0;">Chưa có yêu cầu liên kết mới.</p>';
+          return;
+        }
+        inbox.hidden = false;
+        inbox.innerHTML = `<strong>Hộp thư liên kết</strong><p class="sub" style="margin: 5px 0 8px;">Phụ huynh đang chờ bạn xác nhận.</p>${pending.map((item) => `
+          <div class="link-request">
+            <div><strong>${item.parent_name}</strong><small>Gửi lúc ${item.created_at} · Mã ${item.student_id}</small></div>
+            <div class="link-request-actions"><button class="accept-link" type="button" data-request-id="${item.id}" data-accept="true">Xác nhận</button><button class="reject-link" type="button" data-request-id="${item.id}" data-accept="false">Từ chối</button></div>
+          </div>`).join('')}`;
+        inbox.querySelectorAll('[data-request-id]').forEach((button) => button.addEventListener('click', () => respondLinkRequest(button.dataset.requestId, button.dataset.accept === 'true')));
+      }
+
+      async function respondLinkRequest(requestId, accept) {
+        const response = await fetch('/api/student/link-requests/respond', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ student_username: user.username, request_id: requestId, accept }),
+        });
+        const result = await response.json();
+        showWebToast(response.ok ? 'Hộp thư liên kết' : 'Không thể xử lý', result.message || result.detail || 'Vui lòng thử lại.');
+        if (response.ok) {
+          await loadLinkInbox();
+          await loadDashboard();
+        }
+      }
+
+      loadLinkInbox();
+      window.setInterval(loadLinkInbox, 10000);
+
+      function renderNotifications(alerts) {
+        const list = document.getElementById('notification-list');
+        const hidden = JSON.parse(localStorage.getItem(dismissedNotificationsKey) || '[]');
+        const visibleAlerts = alerts.filter((_, index) => !hidden.includes(index));
+        if (!visibleAlerts.length) {
+          list.innerHTML = '<div class="sub">Hiện chưa có thông báo mới.</div>';
+          return;
+        }
+        list.innerHTML = visibleAlerts.map((alert) => `<div class="notification ${alert.level}"><button class="dismiss-notification" type="button" aria-label="Ẩn thông báo" data-alert-index="${alerts.indexOf(alert)}">×</button><strong>${alert.title}</strong><small>${alert.message}</small></div>`).join('');
+        list.querySelectorAll('.dismiss-notification').forEach((button) => button.addEventListener('click', () => {
+          const dismissed = JSON.parse(localStorage.getItem(dismissedNotificationsKey) || '[]');
+          const index = Number(button.dataset.alertIndex);
+          if (!dismissed.includes(index)) dismissed.push(index);
+          localStorage.setItem(dismissedNotificationsKey, JSON.stringify(dismissed));
+          button.closest('.notification').remove();
+          if (!list.querySelector('.notification')) list.innerHTML = '<div class="sub">Hiện chưa có thông báo mới.</div>';
+        }));
+      }
+
+      function renderStats(stats) {
+        const cards = [
+          ['Tổng bài tập', stats.total],
+          ['Đã hoàn thành', stats.completed],
+          ['Còn lại', stats.pending],
+          ['Tỷ lệ', `${stats.completion_rate}%`],
+        ];
+        const container = document.getElementById('stats-grid');
+        container.innerHTML = cards.map(([label, value]) => `
+          <div class="card">
+            <div class="label">${label}</div>
+            <div class="value">${value}</div>
+          </div>
+        `).join('');
+        renderProgressInsight(stats, assignmentsData);
+      }
+
+      function renderProgressInsight(stats, tasks) {
+        const rate = Math.max(0, Math.min(100, Number(stats.completion_rate || 0)));
+        document.getElementById('progress-ring').style.setProperty('--progress', `${rate}%`);
+        document.getElementById('progress-value').textContent = `${rate}%`;
+        const subjects = {};
+        tasks.forEach((task) => {
+          const subject = task.subject || 'Khác';
+          if (!subjects[subject]) subjects[subject] = { total: 0, completed: 0 };
+          subjects[subject].total += 1;
+          if (task.completed) subjects[subject].completed += 1;
+        });
+        const rows = Object.entries(subjects).slice(0, 4);
+        const container = document.getElementById('subject-progress');
+        container.innerHTML = rows.length ? rows.map(([subject, value]) => {
+          const subjectRate = Math.round(value.completed / value.total * 100);
+          return `<div class="subject-row"><div class="subject-label"><span>${subject}</span><span>${subjectRate}%</span></div><div class="progress-track"><div class="progress-fill" style="width: ${subjectRate}%"></div></div></div>`;
+        }).join('') : '<span class="sub">Thêm nhiệm vụ để xem tiến độ theo môn.</span>';
+      }
+
+      function renderSchedule(schedule) {
+        scheduleData.morning = schedule.filter((lesson) => lesson.session === 'morning');
+        scheduleData.afternoon = schedule.filter((lesson) => lesson.session === 'afternoon');
+        const normalized = schedule.map((lesson) => ({
+          ...lesson,
+          session: lesson.session || 'morning',
+          period: Number(lesson.period || 1),
+          day: String(lesson.day || '').replace('Thứ ', '').replace('Hai', '2').replace('Ba', '3').replace('Tư', '4').replace('Năm', '5').replace('Sáu', '6').replace('Bảy', '7'),
+        }));
+        renderScheduleTable('morning-schedule', normalized.filter((lesson) => lesson.session === 'morning'));
+        renderScheduleTable('afternoon-schedule', normalized.filter((lesson) => lesson.session === 'afternoon'));
+        document.getElementById('schedule-list').hidden = true;
+      }
+
+      function renderScheduleTable(containerId, lessons) {
+        const days = ['2', '3', '4', '5', '6', '7'];
+        const dayNames = { '2': 'THỨ 2', '3': 'THỨ 3', '4': 'THỨ 4', '5': 'THỨ 5', '6': 'THỨ 6', '7': 'THỨ 7' };
+        const bySlot = new Map(lessons.map((lesson) => [`${lesson.day}-${lesson.period}`, lesson]));
+        const container = document.getElementById(containerId);
+        if (!lessons.length) {
+          container.innerHTML = '<div class="sub">Chưa có lịch học nào được cập nhật.</div>';
+          return;
+        }
+        container.innerHTML = `<table class="schedule-table"><thead><tr><th>Tiết</th>${days.map((day) => `<th>${dayNames[day]}</th>`).join('')}</tr></thead><tbody>${Array.from({ length: 5 }, (_, index) => {
+          const period = index + 1;
+          return `<tr><td class="period">TIẾT ${period}</td>${days.map((day) => {
+            const lesson = bySlot.get(`${day}-${period}`);
+            return `<td>${lesson ? `<div class="schedule-cell has-lesson"><strong>${lesson.subject}</strong><small>${lesson.lecturer || ''}</small><div class="cell-actions"><button class="cell-action" type="button" onclick="editSlot('${lesson.session}', '${lesson.day}', ${lesson.period})">Sửa</button><button class="cell-action" type="button" onclick="removeSlot('${lesson.session}', '${lesson.day}', ${lesson.period})">Xóa</button></div></div>` : '<div class="schedule-cell">—</div>'}</td>`;
+          }).join('')}</tr>`;
+        }).join('')}</tbody></table>`;
+      }
+
+      function editSlot(session, day, period) {
+        const lesson = scheduleData[session].find((item) => String(item.day) === day && Number(item.period) === period);
+        document.getElementById('editor-session').value = session;
+        document.getElementById('editor-day').value = day;
+        document.getElementById('editor-period').value = period;
+        document.getElementById('editor-subject').value = lesson?.subject || '';
+        document.getElementById('editor-lecturer').value = lesson?.lecturer || '';
+        setScheduleEditor(true);
+        document.getElementById('editor-subject').focus();
+      }
+
+      async function removeSlot(session, day, period) {
+        if (!confirm('Xóa tiết học này?')) return;
+        const response = await fetch('/api/schedule/slot', {
+          method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session, day, period }),
+        });
+        const result = await response.json();
+        if (!response.ok) { showWebToast('Không thể xóa tiết học', result.detail || 'Vui lòng thử lại.'); return; }
+        await loadDashboard();
+        showView('schedule');
+      }
+
+      function renderTasks(tasks) {
+        const list = document.getElementById('task-list');
+        const filtered = tasks.filter((task) => taskFilter === 'all' || (taskFilter === 'completed' ? task.completed : !task.completed));
+        if (!filtered.length) {
+          list.innerHTML = '<div class="card">Bạn chưa có nhiệm vụ nào.</div>';
+          return;
+        }
+
+        list.innerHTML = filtered.map((task) => `
+          <div class="task-item">
+            <div class="task-content">
+              <strong>${task.title}</strong>
+              <div class="meta">${task.subject} · Hạn ${task.due_date} · ${task.priority || 'Trung bình'}</div>
+            </div>
+            <div class="task-actions">
+              <button class="task-action complete" type="button" onclick="toggleTask('${task.id}', ${!task.completed})">${task.completed ? 'Bỏ hoàn thành' : 'Hoàn thành'}</button>
+              <button class="task-action delete" type="button" onclick="deleteTask('${task.id}')">Xóa</button>
+            </div>
+          </div>
+        `).join('');
+      }
+
+      async function toggleTask(taskId, completed) {
+        const response = await fetch(`/api/assignments/${encodeURIComponent(taskId)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ completed }) });
+        const result = await response.json();
+        if (!response.ok) { showWebToast('Không thể cập nhật nhiệm vụ', result.detail || 'Vui lòng thử lại.'); return; }
+        showWebToast(result.notification?.title || 'Đã cập nhật nhiệm vụ', result.notification?.message || result.message);
+        await loadDashboard();
+        showView('assignments');
+      }
+
+      async function deleteTask(taskId) {
+        if (!confirm('Xóa nhiệm vụ này?')) return;
+        const response = await fetch(`/api/assignments/${encodeURIComponent(taskId)}`, { method: 'DELETE' });
+        if (!response.ok) { alert('Không thể xóa nhiệm vụ.'); return; }
+        await loadDashboard();
+        showView('assignments');
+      }
+
+      document.getElementById('security-form').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const message = document.getElementById('security-message');
+        const password = document.getElementById('security-password').value;
+        const pin = document.getElementById('security-pin').value;
+        if (pin !== document.getElementById('security-pin-confirm').value) { message.textContent = 'Hai mã PIN không khớp.'; return; }
+        const response = await fetch('/api/security/pin', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: user.username, password, pin }),
+        });
+        const result = await response.json();
+        message.textContent = result.message || result.detail || 'Không thể lưu PIN.';
+        if (response.ok) {
+          event.target.reset();
+          user.pin_login_enabled = true;
+          document.getElementById('pin-login-enabled').checked = true;
+          localStorage.setItem('study_sync_user', JSON.stringify(user));
+        }
+      });
+
+      const pinLoginCheckbox = document.getElementById('pin-login-enabled');
+      const pinCurrentWrap = document.getElementById('pin-setting-current-wrap');
+      const pinCurrentInput = document.getElementById('pin-setting-current');
+      pinLoginCheckbox.checked = Boolean(user.pin_login_enabled);
+      pinLoginCheckbox.addEventListener('change', () => {
+        pinCurrentWrap.hidden = pinLoginCheckbox.checked;
+        pinCurrentInput.required = !pinLoginCheckbox.checked;
+      });
+      document.getElementById('pin-login-setting-form').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const message = document.getElementById('pin-login-setting-message');
+        const response = await fetch('/api/security/pin-login', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: user.username,
+            password: document.getElementById('pin-setting-password').value,
+            enabled: pinLoginCheckbox.checked,
+            pin: document.getElementById('pin-setting-current').value,
+          }),
+        });
+        const result = await response.json();
+        message.textContent = result.message || result.detail || 'Không thể cập nhật bảo mật.';
+        if (response.ok) {
+          user.pin_login_enabled = result.enabled;
+          localStorage.setItem('study_sync_user', JSON.stringify(user));
+          event.target.reset();
+          pinLoginCheckbox.checked = result.enabled;
+          pinCurrentWrap.hidden = result.enabled;
+          pinCurrentInput.required = !result.enabled;
+        }
+      });
+
+      async function logout() {
+        localStorage.removeItem('study_sync_user');
+        window.location.href = '/login';
+      }
+
+      showView(window.location.hash.slice(1) || 'overview', false);
+      loadDashboard().catch(() => {
+        overallStatusTextEl.textContent = 'Không thể tải dữ liệu học tập';
+      });
+    </script>
+  </body>
+</html>

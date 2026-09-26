@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="StudySync">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2563EB"/>
+      <stop offset="1" stop-color="#0F9F9A"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="30" fill="url(#bg)"/>
+  <circle cx="96" cy="30" r="12" fill="#FBBF24" opacity=".95"/>
+  <path d="M79 42c-7-8-17-12-29-12-18 0-29 9-29 22 0 15 12 20 29 24 12 3 17 6 17 12 0 6-6 10-16 10-11 0-20-4-27-12l-11 12c9 11 22 17 38 17 20 0 32-10 32-26 0-15-11-21-29-26-12-3-17-6-17-11 0-4 5-7 13-7 9 0 16 3 22 9z" fill="#fff"/>
+</svg>

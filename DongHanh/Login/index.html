@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Đăng nhập | Thoikhoabieu.com</title>
+  <style>
+    :root {
+      --ink: #172b4d;
+      --muted: #718096;
+      --line: #dce5f1;
+      --primary: #246bfd;
+      --primary-dark: #1754d1;
+      --accent: #f7b955;
+      --paper: #ffffff;
+      --soft: #f4f7fb;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      font-family: Georgia, 'Times New Roman', serif;
+      background: #e9f0fa;
+    }
+
+    .page {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: minmax(340px, 0.95fr) minmax(460px, 1.05fr);
+      overflow: hidden;
+    }
+
+    .intro {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 44px clamp(34px, 7vw, 106px);
+      color: #fff;
+      background: #142d58;
+      isolation: isolate;
+    }
+
+    .intro::before,
+    .intro::after {
+      content: '';
+      position: absolute;
+      z-index: -1;
+      border: 1px solid rgba(255, 255, 255, .13);
+      border-radius: 50%;
+    }
+
+    .intro::before { width: 560px; height: 560px; left: -330px; bottom: -170px; }
+    .intro::after { width: 420px; height: 420px; right: -265px; top: -180px; }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 19px;
+      font-weight: 700;
+      letter-spacing: .2px;
+    }
+
+    .brand-mark {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: 10px;
+      color: var(--ink);
+      font-family: Arial, sans-serif;
+      font-size: 20px;
+      background: var(--accent);
+      box-shadow: 7px 7px 0 rgba(247, 185, 85, .15);
+    }
+
+    .intro-copy { max-width: 440px; margin: 40px 0 70px; }
+
+    .eyebrow {
+      margin: 0 0 18px;
+      color: var(--accent);
+      font-family: Arial, sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 2.2px;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(42px, 5vw, 72px);
+      line-height: .98;
+      letter-spacing: -2px;
+      font-weight: 700;
+    }
+
+    .intro-copy > p:last-child {
+      max-width: 350px;
+      margin: 28px 0 0;
+      color: #b7c8e2;
+      font-family: Arial, sans-serif;
+      font-size: 15px;
+      line-height: 1.7;
+    }
+
+    .schedule-note {
+      display: flex;
+      gap: 13px;
+      align-items: center;
+      color: #c8d5e9;
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+    }
+
+    .schedule-note::before {
+      content: '✓';
+      display: grid;
+      width: 24px;
+      height: 24px;
+      place-items: center;
+      border-radius: 50%;
+      color: var(--ink);
+      font-weight: 700;
+      background: var(--accent);
+    }
+
+    .login-area {
+      display: grid;
+      place-items: center;
+      padding: 44px 30px;
+      background: var(--soft);
+    }
+
+    .login-switch {
+      display: flex;
+      width: min(100%, 410px);
+      gap: 6px;
+      margin-bottom: 20px;
+      padding: 4px;
+      border-radius: 8px;
+      background: #e8edf6;
+    }
+
+    .login-switch button {
+      flex: 1;
+      height: 38px;
+      border: 0;
+      border-radius: 6px;
+      color: #718096;
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      background: transparent;
+      cursor: pointer;
+    }
+
+    .login-switch button.active,
+    .login-switch button:hover { color: #68427c; background: #fff; box-shadow: 0 2px 7px rgba(29, 52, 87, .08); }
+
+    .login-message { display: none; width: min(100%, 410px); margin: 0 0 15px; padding: 11px 13px; border: 1px solid #edcaca; border-radius: 7px; color: #a52929; font: 12px Arial, sans-serif; background: #fff7f7; }
+    .login-message.show { display: block; }
+
+    .form-card, .parent-login { grid-column: 1; grid-row: 2; width: min(100%, 410px); }
+
+    .form-card h2 {
+      margin: 0 0 9px;
+      font-size: 37px;
+      line-height: 1.1;
+      letter-spacing: -1px;
+    }
+
+    .subheading {
+      margin: 0 0 34px;
+      color: var(--muted);
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .field { margin-bottom: 19px; }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      color: #30425f;
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .input-wrap { position: relative; }
+
+    input {
+      width: 100%;
+      height: 50px;
+      padding: 0 15px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      outline: none;
+      color: var(--ink);
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      background: var(--paper);
+      transition: border-color .2s, box-shadow .2s;
+    }
+
+    input[type="password"] { padding-right: 50px; }
+    input::placeholder { color: #a8b4c5; }
+    input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(36, 107, 253, .12); }
+
+    .toggle-password {
+      position: absolute;
+      top: 50%;
+      right: 13px;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border: 0;
+      color: #8c9ab0;
+      font-family: Arial, sans-serif;
+      font-size: 11px;
+      background: transparent;
+      cursor: pointer;
+      transform: translateY(-50%);
+    }
+
+    .form-options {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 2px 0 27px;
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+    }
+
+    .remember { display: flex; align-items: center; gap: 8px; color: var(--muted); cursor: pointer; }
+    .remember input { width: 15px; height: 15px; accent-color: var(--primary); }
+    .form-options a, .signup a { color: var(--primary); font-weight: 700; text-decoration: none; }
+    .form-options a:hover, .signup a:hover { text-decoration: underline; }
+
+    .submit {
+      width: 100%;
+      height: 51px;
+      border: 0;
+      border-radius: 7px;
+      color: #fff;
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      font-weight: 700;
+      background: var(--primary);
+      box-shadow: 0 8px 16px rgba(36, 107, 253, .2);
+      cursor: pointer;
+      transition: background .2s, transform .2s;
+    }
+
+    .submit:hover { background: var(--primary-dark); transform: translateY(-1px); }
+
+    .divider { display: flex; align-items: center; gap: 14px; margin: 27px 0; color: #a2adbc; font-family: Arial, sans-serif; font-size: 11px; }
+    .divider::before, .divider::after { content: ''; height: 1px; flex: 1; background: var(--line); }
+
+    .google {
+      width: 100%;
+      height: 48px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      color: #3f4c61;
+      font-family: Arial, sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      background: var(--paper);
+      cursor: pointer;
+    }
+
+    .google span { margin-right: 8px; color: #4285f4; font-size: 16px; }
+    .signup { margin-top: 28px; color: var(--muted); text-align: center; font-family: Arial, sans-serif; font-size: 12px; }
+
+    .parent-login {
+      display: none;
+    }
+
+    .parent-login.active { display: block; }
+
+    .parent-login h3 { margin: 0 0 6px; font-size: 20px; }
+    .parent-login p { margin: 0 0 15px; color: var(--muted); font-family: Arial, sans-serif; font-size: 12px; line-height: 1.5; }
+    .parent-login .field { margin-bottom: 12px; }
+    .parent-login input { height: 44px; }
+    .parent-submit {
+      width: 100%;
+      height: 44px;
+      border: 1px solid #d7c1e6;
+      border-radius: 7px;
+      color: #68427c;
+      font-family: Arial, sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      background: #f8f1fc;
+      cursor: pointer;
+    }
+
+    .parent-submit:hover { color: #fff; background: #8a55a8; }
+
+    .register-backdrop { display: none; position: fixed; inset: 0; z-index: 5; place-items: center; padding: 20px; background: rgba(20, 45, 88, .45); }
+    .register-backdrop.open { display: grid; }
+    .register-card { width: min(100%, 410px); padding: 26px; border-radius: 10px; background: #fff; box-shadow: 0 24px 70px rgba(20, 45, 88, .25); }
+    .register-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+    .register-top h2 { margin: 0; font-size: 25px; }
+    .register-close { border: 0; color: var(--muted); font-size: 22px; background: transparent; cursor: pointer; }
+    .register-card .field { margin-bottom: 14px; }
+    .register-card input, .register-card select { width: 100%; height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 7px; outline: 0; color: var(--ink); font: 13px Arial, sans-serif; background: #fff; }
+    .register-submit { width: 100%; height: 44px; border: 0; border-radius: 7px; color: #172b4d; font-weight: 700; background: #E0b0FF; cursor: pointer; }
+    .register-message { display: none; margin: 12px 0 0; color: #a52929; font: 12px Arial, sans-serif; }
+    .register-message.success { color: #28634e; }
+    .register-message.show { display: block; }
+
+    @media (max-width: 760px) {
+      .page { display: block; }
+      .intro { min-height: 330px; padding: 28px 25px 34px; }
+      .intro-copy { margin: 48px 0 0; }
+      .intro-copy > p:last-child { display: none; }
+      h1 { font-size: 48px; }
+      .schedule-note { margin-top: 32px; }
+      .login-area { min-height: 550px; padding: 48px 25px 60px; }
+    }
+  </style>
+  <style>
+    .submit, .google, .toggle-password { color: #172b4d; background: #E0b0FF; }
+    .submit:hover, .google:hover { color: #172b4d; background: #D697FF; }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="intro" aria-label="Giới thiệu">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">⌁</div>
+        <span>Thoikhoabieu.com</span>
+      </div>
+      <div class="intro-copy">
+        <p class="eyebrow">Không bỏ lỡ nhịp học</p>
+        <h1>Lịch học,<br>gọn trong tay.</h1>
+        <p>Đăng nhập để xem thời khóa biểu, cập nhật lịch học và luôn sẵn sàng cho ngày mới.</p>
+      </div>
+      <div class="schedule-note">Đồng bộ lịch học mọi lúc, mọi nơi</div>
+    </section>
+
+    <section class="login-area">
+      <div class="login-switch" role="tablist" aria-label="Loại tài khoản">
+        <button class="active" id="student-tab" type="button" role="tab" aria-selected="true" onclick="showLogin('student')">Tài khoản học sinh</button>
+        <button id="parent-tab" type="button" role="tab" aria-selected="false" onclick="showLogin('parent')">Tài khoản phụ huynh</button>
+      </div>
+      <p class="login-message" id="login-message" role="alert"></p>
+      <form class="form-card" action="../Main/" method="get" onsubmit="handleLogin(event, 'student')">
+        <h2>Chào mừng trở lại</h2>
+        <p class="subheading">Đăng nhập vào tài khoản của bạn để tiếp tục.</p>
+
+        <div class="field">
+          <label for="email">Email hoặc tên đăng nhập</label>
+          <input id="email" name="email" type="text" placeholder="Nhập email của bạn" autocomplete="username" required>
+        </div>
+
+        <div class="field">
+          <label for="password">Mật khẩu</label>
+          <div class="input-wrap">
+            <input id="password" name="password" type="password" placeholder="Nhập mật khẩu" autocomplete="current-password" required>
+            <button class="toggle-password" type="button" aria-label="Hiện mật khẩu" onclick="togglePassword()">Hiện</button>
+          </div>
+        </div>
+
+        <div class="form-options">
+          <label class="remember"><input type="checkbox" name="remember"> Ghi nhớ đăng nhập</label>
+          <a href="#">Quên mật khẩu?</a>
+        </div>
+
+        <button class="submit" type="submit">Đăng nhập</button>
+        <div class="divider">hoặc</div>
+        <button class="google" type="button"><span>G</span> Tiếp tục với Google</button>
+        <p class="signup">Chưa có tài khoản? <a href="#" onclick="openRegister(event)">Đăng ký ngay</a></p>
+      </form>
+
+      <section class="parent-login" aria-labelledby="parent-login-title">
+        <h3 id="parent-login-title">Đăng nhập tài khoản phụ huynh</h3>
+        <p>Theo dõi thời khóa biểu và tiến độ học tập của học sinh.</p>
+        <form action="../ChucnangPH.html" method="get" onsubmit="handleLogin(event, 'parent')">
+          <div class="field">
+            <label for="parent-username">Tên đăng nhập phụ huynh</label>
+            <input id="parent-username" name="username" type="text" placeholder="Nhập tên đăng nhập" autocomplete="username" required>
+          </div>
+          <div class="field">
+            <label for="parent-password">Mật khẩu</label>
+            <input id="parent-password" name="password" type="password" placeholder="Nhập mật khẩu" autocomplete="current-password" required>
+          </div>
+          <button class="parent-submit" type="submit">Vào trang quan sát</button>
+        </form>
+      </section>
+    </section>
+  </main>
+
+  <div class="register-backdrop" id="register-modal" role="dialog" aria-modal="true" aria-labelledby="register-title">
+    <form class="register-card" onsubmit="registerAccount(event)">
+      <div class="register-top"><h2 id="register-title">Tạo tài khoản</h2><button class="register-close" type="button" onclick="closeRegister()" aria-label="Đóng">×</button></div>
+      <div class="field"><label for="register-name">Tên hiển thị</label><input id="register-name" required placeholder="Ví dụ: Minh Quân"></div>
+      <div class="field"><label for="register-username">Tên đăng nhập</label><input id="register-username" required placeholder="Ví dụ: minhquan7a1"></div>
+      <div class="field"><label for="register-password">Mật khẩu</label><input id="register-password" type="password" required minlength="6" placeholder="Ít nhất 6 ký tự"></div>
+      <div class="field"><label for="register-role">Loại tài khoản</label><select id="register-role"><option value="student">Học sinh</option><option value="parent">Phụ huynh</option></select></div>
+      <button class="register-submit" type="submit">Lưu tài khoản</button>
+      <p class="register-message" id="register-message"></p>
+    </form>
+  </div>
+
+  <script>
+    function showLogin(role) {
+      const studentForm = document.querySelector('.form-card');
+      const parentForm = document.querySelector('.parent-login');
+      const studentTab = document.getElementById('student-tab');
+      const parentTab = document.getElementById('parent-tab');
+      const isParent = role === 'parent';
+      studentForm.style.display = isParent ? 'none' : 'block';
+      parentForm.classList.toggle('active', isParent);
+      studentTab.classList.toggle('active', !isParent);
+      parentTab.classList.toggle('active', isParent);
+      studentTab.setAttribute('aria-selected', String(!isParent));
+      parentTab.setAttribute('aria-selected', String(isParent));
+    }
+
+    async function handleLogin(event, expectedRole) {
+      event.preventDefault();
+      clearLoginMessage();
+      const form = event.target;
+      const username = form.querySelector('input[name="email"], input[name="username"]').value.trim();
+      const password = form.querySelector('input[type="password"]').value;
+      try {
+        const response = await fetch('../api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: username, password: password })
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          showLoginMessage(result.message || 'Tên đăng nhập hoặc mật khẩu không đúng.');
+          return;
+        }
+        if (expectedRole === 'parent' && result.role !== 'parent') {
+          showLoginMessage('Tài khoản này không phải tài khoản phụ huynh.');
+          return;
+        }
+        if (expectedRole === 'student' && result.role === 'parent') {
+          showLoginMessage('Vui lòng chọn khu đăng nhập phụ huynh.');
+          return;
+        }
+        localStorage.setItem('user.profile', JSON.stringify({ name: result.display_name, className: '7A1', role: result.role }));
+        window.location.href = result.role === 'parent' ? '../ChucnangPH.html' : '../Main/';
+      } catch (error) {
+        showLoginMessage('Không thể kết nối máy chủ. Hãy khởi động lại app.py rồi thử lại.');
+      }
+    }
+
+    function showLoginMessage(text) {
+      const message = document.getElementById('login-message');
+      message.textContent = text;
+      message.classList.add('show');
+    }
+
+    function clearLoginMessage() {
+      document.getElementById('login-message').classList.remove('show');
+    }
+
+    function openRegister(event) {
+      event.preventDefault();
+      document.getElementById('register-modal').classList.add('open');
+      document.getElementById('register-name').focus();
+    }
+
+    function closeRegister() {
+      document.getElementById('register-modal').classList.remove('open');
+      document.getElementById('register-message').classList.remove('show');
+    }
+
+    async function registerAccount(event) {
+      event.preventDefault();
+      const message = document.getElementById('register-message');
+      const response = await fetch('../api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          display_name: document.getElementById('register-name').value.trim(),
+          username: document.getElementById('register-username').value.trim(),
+          password: document.getElementById('register-password').value,
+          role: document.getElementById('register-role').value
+        })
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        message.classList.remove('success');
+        message.textContent = result.message;
+        message.classList.add('show');
+        return;
+      }
+      message.classList.add('success');
+      message.textContent = result.message + ' Bạn có thể đăng nhập ngay.';
+      message.classList.add('show');
+      event.target.reset();
+      setTimeout(closeRegister, 1800);
+    }
+
+    function togglePassword() {
+      const input = document.getElementById('password');
+      const button = document.querySelector('.toggle-password');
+      const visible = input.type === 'text';
+      input.type = visible ? 'password' : 'text';
+      button.textContent = visible ? 'Hiện' : 'Ẩn';
+      button.setAttribute('aria-label', visible ? 'Hiện mật khẩu' : 'Ẩn mật khẩu');
+    }
+  </script>
+</body>
+</html>

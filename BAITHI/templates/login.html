@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>StudySync | Đăng nhập</title>
+    <link rel="icon" href="/static/studysync-icon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700&family=Nunito+Sans:wght@400;600;700;800&display=swap&subset=vietnamese" rel="stylesheet" />
+    <style>
+      :root {
+        --bg: #f4f7fb;
+        --card: #ffffff;
+        --line: #dfe7f3;
+        --primary: #1f6feb;
+        --primary-dark: #154ea8;
+        --accent: #dff3ec;
+        --danger: #dc2626;
+        --text: #1d2a39;
+        --muted: #66758c;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; font-family: 'Nunito Sans', sans-serif; background: radial-gradient(circle at 8% 0%, #dbeafe 0, transparent 28%), linear-gradient(135deg, #f8fafc, #ecfeff 62%, #fff7ed); color: var(--text); }
+      h1, .brand { font-family: 'Baloo 2', sans-serif; }
+      button, input, select { font: inherit; }
+      body { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+      .shell { width: min(1100px, 100%); display: grid; grid-template-columns: 1.05fr 1fr; border: 1px solid var(--line); border-radius: 24px; overflow: hidden; background: rgba(255,255,255,.8); backdrop-filter: blur(8px); box-shadow: 0 24px 60px rgba(14, 20, 32, 0.08); }
+      .left { padding: 52px 42px; background: linear-gradient(180deg, #1d3557, #19325d 40%, #1a2f4c); color: #fff; }
+      .brand { display: inline-flex; align-items: center; gap: 12px; font-weight: 700; letter-spacing: .5px; }
+      .brand-badge { width: 42px; height: 42px; border-radius: 14px; display: grid; place-items: center; background: #f8c96a; color: #1d3557; font-weight: 700; }
+      .hero { margin-top: 48px; }
+      .eyebrow { text-transform: uppercase; letter-spacing: 2px; font-size: 11px; opacity: .75; }
+      h1 { font-size: clamp(2.3rem, 4vw, 4rem); line-height: 1.05; margin: 10px 0 16px; }
+      .lead { color: rgba(255,255,255,.8); line-height: 1.7; max-width: 500px; }
+      .mini-grid { display: grid; grid-template-columns: repeat(3, minmax(120px, 1fr)); gap: 14px; margin-top: 30px; }
+      .mini-card { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.12); border-radius: 14px; padding: 16px; }
+      .mini-card strong { display: block; font-size: 1.3rem; }
+      .mini-card span { font-size: .75rem; opacity: .78; }
+      .right { padding: 42px 32px; background: #fff; }
+      .auth-panel { max-width: 420px; margin: 0 auto; }
+      .switch { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 12px; padding: 5px; background: #f5f8fe; }
+      .switch button { border: none; background: transparent; padding: 12px; border-radius: 10px; font-weight: 700; color: var(--muted); cursor: pointer; }
+      .switch button.active { background: #fff; color: var(--primary); box-shadow: 0 6px 14px rgba(31,111,235,.12); }
+      form { margin-top: 30px; display: grid; gap: 18px; }
+      .field { display: grid; gap: 8px; }
+      .field label { font-weight: 600; font-size: .92rem; }
+      .field input, .field select { width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 13px 14px; font-size: 1rem; outline: none; }
+      .field input:focus, .field select:focus { border-color: rgba(31,111,235,.55); box-shadow: 0 0 0 4px rgba(31,111,235,.08); }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+      .actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 8px; }
+      .checkbox { display: inline-flex; align-items: center; gap: 8px; font-size: .86rem; color: var(--muted); }
+      .btn { border: none; border-radius: 12px; padding: 14px 18px; font-weight: 700; cursor: pointer; transition: .2s ease; }
+      .btn.primary { background: var(--primary); color: #fff; }
+      .btn.primary:hover { background: var(--primary-dark); }
+      .btn.secondary { background: rgba(31,111,235,.08); color: var(--primary); }
+      .message { display: none; margin-top: 14px; padding: 11px 14px; border-radius: 10px; font-size: .9rem; }
+      .message.show { display: block; }
+      .message.error { background: #fff1f2; border: 1px solid #fbcfe1; color: var(--danger); }
+      .message.success { background: #ecfdf5; border: 1px solid #bbf7d0; color: #166534; }
+      @media (max-width: 860px) { .shell { grid-template-columns: 1fr; } .left { padding-bottom: 24px; } .right { padding-top: 20px; } }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <section class="left">
+        <div class="brand"><span class="brand-badge">S</span> StudySync</div>
+        <div class="hero">
+          <div class="eyebrow">Quản lý học tập thông minh</div>
+          <h1>Đồng hành cùng học sinh và phụ huynh.</h1>
+          <p class="lead">Một nền tảng thống nhất để theo dõi thời khóa biểu, bài tập, tiến độ, nhắc việc và điểm số của học sinh trong thời gian thực.</p>
+          <div class="mini-grid">
+            <div class="mini-card"><strong>24/7</strong><span>Nhắc việc</span></div>
+            <div class="mini-card"><strong>100%</strong><span>Tự động</span></div>
+            <div class="mini-card"><strong>2 vai trò</strong><span>HS + PH</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="right">
+        <div class="auth-panel">
+          <div class="switch" role="tablist" aria-label="Loại đăng nhập">
+            <button class="active" type="button" data-mode="login">Đăng nhập</button>
+            <button type="button" data-mode="register">Đăng ký</button>
+          </div>
+
+          <div id="message" class="message" role="alert"></div>
+
+          <form id="auth-form">
+            <div class="field">
+              <label for="username">Tên đăng nhập</label>
+              <input id="username" name="username" type="text" placeholder="Nhập tên đăng nhập" required />
+            </div>
+
+            <div class="field">
+              <label for="password">Mật khẩu</label>
+              <input id="password" name="password" type="password" placeholder="Nhập mật khẩu" required />
+            </div>
+
+            <div id="login-pin-field" class="field" style="display: none;">
+              <label for="login-pin">Mã PIN đăng nhập</label>
+              <input id="login-pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="one-time-code" />
+            </div>
+
+            <div id="extra-fields" class="row" style="display: none;">
+              <div id="full-name-field" class="field">
+                <label for="full_name">Họ tên</label>
+                <input id="full_name" name="full_name" type="text" placeholder="Nguyễn Văn A" />
+              </div>
+              <div class="field">
+                <label for="role">Vai trò</label>
+                <select id="role" name="role">
+                  <option value="student">Học sinh</option>
+                  <option value="parent">Phụ huynh</option>
+                </select>
+              </div>
+            </div>
+
+            <div id="class-row" class="field" style="display: none;">
+              <label for="class_name">Lớp</label>
+              <input id="class_name" name="class_name" type="text" placeholder="Ví dụ: 10A1" />
+            </div>
+
+            <div class="actions">
+              <label class="checkbox"><input type="checkbox" checked /> Ghi nhớ phiên đăng nhập</label>
+              <button id="submit-btn" class="btn primary" type="submit">Đăng nhập</button>
+            </div>
+          </form>
+        </div>
+      </section>
+    </div>
+
+    <script>
+      const authForm = document.getElementById('auth-form');
+      const submitBtn = document.getElementById('submit-btn');
+      const messageBox = document.getElementById('message');
+      const extraFields = document.getElementById('extra-fields');
+      const classRow = document.getElementById('class-row');
+      const loginPinField = document.getElementById('login-pin-field');
+      const loginPinInput = document.getElementById('login-pin');
+      const fullNameField = document.getElementById('full-name-field');
+      const fullNameInput = document.getElementById('full_name');
+      const modeButtons = document.querySelectorAll('[data-mode]');
+      let currentMode = 'login';
+      let awaitingPin = false;
+
+      function showMessage(text, kind) {
+        messageBox.textContent = text;
+        messageBox.className = `message show ${kind}`;
+      }
+
+      function setMode(mode) {
+        authForm.reset();
+        awaitingPin = false;
+        loginPinField.style.display = 'none';
+        loginPinInput.required = false;
+        submitBtn.textContent = mode === 'register' ? 'Tạo tài khoản' : 'Đăng nhập';
+        currentMode = mode;
+        const isRegister = mode === 'register';
+        extraFields.style.display = isRegister ? 'grid' : 'none';
+        classRow.style.display = isRegister ? 'block' : 'none';
+        modeButtons.forEach((button) => {
+          const active = button.dataset.mode === mode;
+          button.classList.toggle('active', active);
+        });
+        fullNameField.style.display = isRegister && document.getElementById('role').value === 'student' ? 'grid' : 'none';
+        fullNameInput.required = isRegister && document.getElementById('role').value === 'student';
+        messageBox.className = 'message';
+      }
+
+      modeButtons.forEach((button) => {
+        button.addEventListener('click', () => setMode(button.dataset.mode));
+      });
+
+      document.getElementById('role').addEventListener('change', () => {
+        const isStudent = document.getElementById('role').value === 'student';
+        fullNameField.style.display = isStudent ? 'grid' : 'none';
+        fullNameInput.required = isStudent;
+        if (!isStudent) fullNameInput.value = '';
+      });
+
+      function clearRegistrationDraft() {
+        authForm.reset();
+        awaitingPin = false;
+        loginPinField.style.display = 'none';
+        loginPinInput.required = false;
+        submitBtn.textContent = currentMode === 'register' ? 'Tạo tài khoản' : 'Đăng nhập';
+      }
+
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden && currentMode === 'register') clearRegistrationDraft();
+      });
+      window.addEventListener('pagehide', clearRegistrationDraft);
+
+      authForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const payload = {
+          username: document.getElementById('username').value.trim(),
+          password: document.getElementById('password').value,
+          full_name: document.getElementById('full_name').value.trim(),
+          role: document.getElementById('role').value,
+          class_name: document.getElementById('class_name').value.trim(),
+          pin: loginPinInput.value,
+        };
+
+        const endpoint = currentMode === 'login' ? '/api/auth/login' : '/api/auth/register';
+
+        try {
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+
+          const result = await response.json();
+          if (!response.ok) {
+            showMessage(result.detail || result.message || 'Có lỗi xảy ra.', 'error');
+            return;
+          }
+
+          if (currentMode === 'login') {
+            if (result.requires_pin) {
+              awaitingPin = true;
+              loginPinField.style.display = 'grid';
+              loginPinInput.required = true;
+              submitBtn.textContent = 'Xác nhận PIN';
+              loginPinInput.focus();
+              showMessage(result.message || 'Nhập mã PIN để tiếp tục.', 'success');
+              return;
+            }
+            localStorage.setItem('study_sync_user', JSON.stringify(result.user));
+            showMessage('Đăng nhập thành công. Đang chuyển hướng...', 'success');
+            setTimeout(() => {
+              window.location.href = result.user.role === 'parent' ? '/parent' : '/student';
+            }, 600);
+            return;
+          }
+
+          showMessage(result.message || 'Tạo tài khoản thành công.', 'success');
+          setMode('login');
+        } catch (error) {
+          showMessage('Không thể kết nối tới máy chủ. Hãy đảm bảo server đang chạy.', 'error');
+        }
+      });
+
+      setMode('login');
+    </script>
+  </body>
+</html>

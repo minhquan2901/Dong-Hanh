@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trang chính | Thoikhoabieu.com</title>
+  <style>
+    :root {
+      --navy: #142d58;
+      --blue: #246bfd;
+      --sky: #eaf2ff;
+      --cream: #fffaf0;
+      --orange: #f0a43c;
+      --ink: #1d2c45;
+      --muted: #7d8a9f;
+      --line: #e4e9f1;
+      --paper: #ffffff;
+      --green: #2c9b76;
+      --shadow: 0 18px 45px rgba(29, 52, 87, .08);
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--ink); font-family: Arial, sans-serif; background: #f6f8fc; }
+    button, input, select { font: inherit; }
+    button { cursor: pointer; }
+
+    .app { display: flex; min-height: 100vh; }
+    .sidebar { width: 250px; flex: 0 0 250px; padding: 30px 18px 22px; color: #fff; background: var(--navy); }
+    .brand { display: flex; align-items: center; gap: 11px; margin: 0 14px 62px; font-family: Georgia, serif; font-size: 18px; font-weight: 700; }
+    .brand-mark { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 10px; color: var(--navy); font-family: Arial, sans-serif; font-size: 20px; background: #f7bf63; }
+    .nav-label { margin: 0 14px 12px; color: #8294b5; font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; }
+    .nav { display: grid; gap: 5px; }
+    .nav button { display: flex; align-items: center; gap: 13px; width: 100%; padding: 12px 14px; border: 0; border-radius: 7px; color: #abbad1; text-align: left; background: transparent; transition: background .2s, color .2s; }
+    .nav button:hover, .nav button.active { color: #fff; background: rgba(255, 255, 255, .1); }
+    .nav-icon { width: 20px; color: #88a5d6; font-size: 16px; text-align: center; }
+    .nav button.active .nav-icon { color: #f7bf63; }
+    .sidebar-bottom { margin-top: auto; padding: 20px 14px 0; }
+    .tip { padding: 18px; border: 1px solid rgba(255, 255, 255, .1); border-radius: 8px; background: rgba(255, 255, 255, .05); }
+    .tip strong { display: block; margin-bottom: 8px; color: #fff; font-family: Georgia, serif; font-size: 16px; }
+    .tip p { margin: 0; color: #9badc7; font-size: 11px; line-height: 1.6; }
+
+    .content { flex: 1; min-width: 0; padding: 32px clamp(25px, 4vw, 56px); }
+    .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 42px; }
+    .breadcrumb { color: var(--muted); font-size: 12px; }
+    .breadcrumb strong { color: var(--ink); font-weight: 700; }
+    .user { display: flex; align-items: center; gap: 12px; color: inherit; text-decoration: none; }
+    .user-info { text-align: right; }
+    .user-info strong { display: block; font-size: 12px; }
+    .user-info span { display: block; color: var(--muted); font-size: 10px; }
+    .user-info .role { margin-top: 3px; color: #8a55a8; font-weight: 700; }
+    .avatar { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 50%; color: #fff; font-size: 12px; font-weight: 700; background: #da8d46; }
+    .logout { padding: 8px 11px; border: 1px solid #d8e3f8; border-radius: 6px; color: #52617a; font-size: 11px; font-weight: 700; background: #fff; cursor: pointer; }
+    .logout:hover { color: #a52929; border-color: #edcaca; background: #fff7f7; }
+
+    .welcome { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 32px; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { margin-bottom: 8px; font-family: Georgia, serif; font-size: clamp(32px, 4vw, 46px); letter-spacing: -1.5px; }
+    .welcome p { margin-bottom: 0; color: var(--muted); font-size: 13px; }
+    .date-badge { padding: 12px 16px; border: 1px solid #f1dfbc; border-radius: 7px; color: #a8752b; font-size: 12px; font-weight: 700; background: var(--cream); }
+
+    .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 26px; }
+    .summary-card { display: flex; align-items: center; gap: 14px; padding: 17px 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); box-shadow: 0 5px 20px rgba(29, 52, 87, .03); }
+    .summary-icon { display: grid; width: 39px; height: 39px; place-items: center; border-radius: 8px; font-size: 18px; background: var(--sky); }
+    .summary-card:nth-child(2) .summary-icon { background: #fff2d9; }
+    .summary-card:nth-child(3) .summary-icon { background: #e7f6ef; }
+    .summary-card strong { display: block; margin-bottom: 4px; font-family: Georgia, serif; font-size: 23px; }
+    .summary-card span { color: var(--muted); font-size: 11px; }
+
+    .main-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(310px, .85fr); gap: 22px; align-items: start; }
+    .panel { border: 1px solid var(--line); border-radius: 9px; background: var(--paper); box-shadow: var(--shadow); }
+    .panel-head { display: flex; align-items: center; justify-content: space-between; padding: 22px 23px 18px; border-bottom: 1px solid var(--line); }
+    .panel-head h2 { margin: 0; font-family: Georgia, serif; font-size: 21px; }
+    .panel-head a { color: var(--blue); font-size: 11px; font-weight: 700; text-decoration: none; }
+    .panel-head a:hover { text-decoration: underline; }
+
+    .assignments { padding: 4px 23px 8px; }
+    .assignment { display: flex; align-items: center; gap: 13px; min-height: 71px; border-bottom: 1px solid #edf0f5; }
+    .assignment:last-child { border-bottom: 0; }
+    .check { width: 16px; height: 16px; accent-color: var(--blue); cursor: pointer; }
+    .assignment-info { flex: 1; min-width: 0; }
+    .assignment-title { display: block; margin-bottom: 5px; font-size: 13px; font-weight: 700; }
+    .assignment-meta { color: var(--muted); font-size: 10px; }
+    .assignment-meta b { color: var(--ink); }
+    .priority { padding: 5px 7px; border-radius: 4px; color: #bf7220; font-size: 9px; font-weight: 700; background: #fff3dd; }
+    .priority.normal { color: #4772ac; background: #eaf2ff; }
+    .assignment.done .assignment-title { color: #98a3b3; text-decoration: line-through; }
+    .assignment.done .priority { opacity: .4; }
+
+    .calendar { margin-bottom: 22px; }
+    .week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; padding: 17px 20px; }
+    .day { padding: 8px 2px; border-radius: 7px; color: var(--muted); text-align: center; font-size: 10px; }
+    .day strong { display: block; margin-top: 6px; color: var(--ink); font-size: 14px; }
+    .day.today { color: #fff; background: var(--blue); box-shadow: 0 6px 13px rgba(36, 107, 253, .2); }
+    .day.today strong { color: #fff; }
+    .schedule-list { padding: 0 20px 15px; }
+    .schedule-row { display: grid; grid-template-columns: 52px 4px 1fr; gap: 12px; align-items: center; min-height: 54px; }
+    .schedule-time { color: var(--muted); font-size: 10px; }
+    .schedule-line { width: 4px; height: 32px; border-radius: 4px; background: #62a5ff; }
+    .schedule-row:nth-child(2) .schedule-line { background: #f4ad4c; }
+    .schedule-row:nth-child(3) .schedule-line { background: #63b994; }
+    .schedule-row strong { display: block; margin-bottom: 4px; font-size: 12px; }
+    .schedule-row span { color: var(--muted); font-size: 10px; }
+
+    .ai-panel { overflow: hidden; border-color: #d8e3f8; }
+    .ai-head { display: flex; align-items: center; gap: 12px; padding: 20px 22px; background: #edf4ff; }
+    .ai-logo { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 50%; color: #fff; font-family: Georgia, serif; font-size: 20px; background: var(--blue); }
+    .ai-head h2 { margin: 0 0 4px; font-family: Georgia, serif; font-size: 19px; }
+    .ai-head p { margin: 0; color: #7190bd; font-size: 10px; }
+    .chat { display: flex; flex-direction: column; gap: 13px; min-height: 230px; padding: 21px 22px 13px; }
+    .message { max-width: 88%; padding: 11px 13px; border-radius: 9px; color: #42516a; font-size: 11px; line-height: 1.55; background: #f2f5f9; }
+    .message.user { align-self: flex-end; color: #fff; background: var(--blue); }
+    .chat-form { display: flex; gap: 8px; padding: 15px 17px; border-top: 1px solid var(--line); }
+    .chat-form input { flex: 1; min-width: 0; height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; outline: 0; font-size: 11px; }
+    .chat-form input:focus { border-color: var(--blue); }
+    .send { width: 42px; border: 0; border-radius: 6px; color: #fff; background: var(--blue); }
+
+    .modal-backdrop { display: none; position: fixed; inset: 0; z-index: 5; place-items: center; padding: 20px; background: rgba(20, 45, 88, .45); }
+    .modal-backdrop.open { display: grid; }
+    .modal { width: min(100%, 430px); padding: 26px; border-radius: 10px; background: #fff; box-shadow: 0 24px 70px rgba(20, 45, 88, .25); }
+    .modal-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 23px; }
+    .modal h2 { margin: 0; font-family: Georgia, serif; font-size: 24px; }
+    .close { border: 0; color: var(--muted); font-size: 22px; background: transparent; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .form-field { margin-bottom: 15px; }
+    .form-field label { display: block; margin-bottom: 7px; color: #52617a; font-size: 11px; font-weight: 700; }
+    .form-field input, .form-field select { width: 100%; height: 42px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; outline: 0; color: var(--ink); font-size: 12px; background: #fff; }
+    .form-field input:focus, .form-field select:focus { border-color: var(--blue); }
+    .modal-submit { width: 100%; height: 44px; margin-top: 7px; border: 0; border-radius: 6px; color: #fff; font-size: 12px; font-weight: 700; background: var(--blue); }
+    .message-backdrop { display: none; position: fixed; inset: 0; z-index: 10; place-items: center; padding: 20px; background: rgba(20, 45, 88, .42); }
+    .message-backdrop.open { display: grid; }
+    .message-box { width: min(100%, 380px); padding: 25px; border: 1px solid #e4e9f1; border-radius: 10px; background: #fff; box-shadow: 0 24px 70px rgba(20, 45, 88, .25); }
+    .message-box h2 { margin: 0 0 8px; font: 24px Georgia, serif; }
+    .message-box p { margin: 0 0 22px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+    .message-actions { display: flex; justify-content: flex-end; gap: 9px; }
+    .message-actions button { min-width: 82px; height: 38px; padding: 0 13px; border: 0; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; }
+    .message-cancel { color: #52617a; background: #edf1f7; }
+    .message-confirm { color: #fff; background: var(--blue); }
+    .message-confirm.danger { background: #b24b4b; }
+
+    @media (max-width: 1050px) { .sidebar { width: 210px; flex-basis: 210px; } .main-grid { grid-template-columns: 1fr; } .calendar { margin-bottom: 0; } }
+    @media (max-width: 720px) { .app { display: block; } .sidebar { width: 100%; padding: 18px; } .brand { margin: 0 0 22px; } .nav { grid-template-columns: repeat(4, 1fr); } .nav-label, .sidebar-bottom, .nav button span:not(.nav-icon) { display: none; } .nav button { justify-content: center; padding: 10px; } .content { padding: 24px 17px 40px; } .topbar { margin-bottom: 28px; } .welcome { display: block; } .date-badge { display: inline-block; margin-top: 18px; } .summary { grid-template-columns: 1fr; gap: 9px; } .summary-card { padding: 13px 15px; } }
+    @media (max-width: 430px) { .user-info { display: none; } .panel-head { padding-left: 17px; padding-right: 17px; } .assignments { padding-left: 17px; padding-right: 17px; } .week { padding-left: 11px; padding-right: 11px; } .form-row { grid-template-columns: 1fr; gap: 0; } }
+  </style>
+  <style>
+    .send, .modal-submit { color: #172b4d; background: #E0b0FF; }
+    .send:hover, .modal-submit:hover { color: #172b4d; background: #D697FF; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand"><div class="brand-mark">⌁</div><span>Thoikhoabieu.com</span></div>
+      <p class="nav-label">Không gian học tập</p>
+      <nav class="nav" aria-label="Điều hướng chính">
+        <button class="active" type="button"><span class="nav-icon">⌂</span><span>Tổng quan</span></button>
+        <button type="button" onclick="window.location.href='../Chucnang/thoi_khoa_bieu.html'"><span class="nav-icon">▣</span><span>Thời khóa biểu</span></button>
+        <button id="parent-nav" type="button" onclick="window.location.href='../ChucnangPH.html'"><span class="nav-icon">♧</span><span>Phụ huynh</span></button>
+        <button type="button"><span class="nav-icon">✓</span><span>Báo bài</span></button>
+        <button type="button"><span class="nav-icon">✦</span><span>Hỏi bài AI</span></button>
+      </nav>
+      <div class="sidebar-bottom"><div class="tip"><strong>Học nhẹ hơn mỗi ngày</strong><p>Hoàn thành từng việc nhỏ để giữ nhịp học thật đều.</p></div></div>
+    </aside>
+
+    <main class="content">
+      <header class="topbar">
+        <div class="breadcrumb">Không gian học tập <span>/</span> <strong>Tổng quan</strong></div>
+        <div class="user"><div class="user-info"><strong id="profile-name">Minh Anh</strong><span id="profile-class">Lớp 8A1</span><span class="role" id="profile-role">Học sinh</span></div><a href="../Chucnang/thong_tin_ca_nhan.html" title="Đổi tên và lớp"><div class="avatar" id="profile-avatar">MA</div></a><button class="logout" type="button" onclick="logout()">Đăng xuất</button></div>
+      </header>
+
+      <section class="welcome"><div><h1 id="welcome-title">Chào bạn, Minh Anh.</h1><p>Một ngày mới để học thêm điều thú vị.</p></div><div class="date-badge" id="current-date"></div></section>
+
+      <section class="summary" aria-label="Tóm tắt hôm nay">
+        <div class="summary-card"><div class="summary-icon">▦</div><div><strong>04</strong><span>Tiết học hôm nay</span></div></div>
+        <div class="summary-card"><div class="summary-icon">◷</div><div><strong>03</strong><span>Bài cần hoàn thành</span></div></div>
+        <div class="summary-card"><div class="summary-icon">✓</div><div><strong>01</strong><span>Bài đã hoàn tất</span></div></div>
+      </section>
+
+      <div class="main-grid">
+        <section class="panel">
+          <div class="panel-head"><h2>Báo bài cần làm</h2><a href="#" onclick="showAllAssignments(event)">Xem tất cả</a></div>
+          <div class="assignments" id="assignments">
+            <div class="assignment"><input class="check" type="checkbox"><div class="assignment-info"><span class="assignment-title">Bài tập phương trình bậc hai</span><span class="assignment-meta">Toán học · Hạn nộp <b>Hôm nay</b></span></div><span class="priority">Gấp</span></div>
+            <div class="assignment"><input class="check" type="checkbox"><div class="assignment-info"><span class="assignment-title">Soạn bài Vợ chồng A Phủ</span><span class="assignment-meta">Ngữ văn · Hạn nộp <b>Ngày mai</b></span></div><span class="priority normal">Bình thường</span></div>
+            <div class="assignment"><input class="check" type="checkbox"><div class="assignment-info"><span class="assignment-title">Ôn tập chương 2: Chuyển động</span><span class="assignment-meta">Vật lý · Hạn nộp <b>Thứ Sáu</b></span></div><span class="priority normal">Bình thường</span></div>
+            <div class="assignment done"><input class="check" type="checkbox" checked><div class="assignment-info"><span class="assignment-title">Học 20 từ vựng Unit 3</span><span class="assignment-meta">Tiếng Anh · Đã hoàn thành</span></div><span class="priority normal">Xong</span></div>
+          </div>
+        </section>
+
+        <div>
+          <section class="panel calendar">
+            <div class="panel-head"><h2>Lịch hôm nay</h2><a href="#" onclick="openModal(event)">+ Thêm tiết</a></div>
+            <div class="week"><div class="day">T2<strong>14</strong></div><div class="day">T3<strong>15</strong></div><div class="day today">T4<strong>16</strong></div><div class="day">T5<strong>17</strong></div><div class="day">T6<strong>18</strong></div><div class="day">T7<strong>19</strong></div><div class="day">CN<strong>20</strong></div></div>
+            <div class="schedule-list" id="schedule-list">
+              <div class="schedule-row"><span class="schedule-time">07:30</span><i class="schedule-line"></i><div><strong>Toán học</strong><span>Phòng A203 · Cô Lan</span></div></div>
+              <div class="schedule-row"><span class="schedule-time">09:15</span><i class="schedule-line"></i><div><strong>Ngữ văn</strong><span>Phòng A203 · Thầy Nam</span></div></div>
+              <div class="schedule-row"><span class="schedule-time">13:30</span><i class="schedule-line"></i><div><strong>Tiếng Anh</strong><span>Phòng B105 · Cô Hương</span></div></div>
+            </div>
+          </section>
+
+          <section class="panel ai-panel">
+            <div class="ai-head"><div class="ai-logo">✦</div><div><h2>Trợ lý hỏi bài</h2><p>Luôn sẵn sàng giải thích cùng bạn</p></div></div>
+            <div class="chat" id="chat"><div class="message">Chào Minh Anh! Bạn đang cần mình giải thích bài nào hôm nay?</div><div class="message user">Giúp mình hiểu cách giải phương trình bậc hai nhé.</div><div class="message">Được chứ! Bạn gửi đề bài cụ thể, mình sẽ hướng dẫn từng bước, không chỉ đưa đáp án.</div></div>
+            <form class="chat-form" onsubmit="sendMessage(event)"><input id="question" type="text" placeholder="Hỏi bài tập của bạn..." aria-label="Câu hỏi bài tập"><button class="send" type="submit" aria-label="Gửi câu hỏi">➜</button></form>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <form class="modal" onsubmit="addSchedule(event)">
+      <div class="modal-top"><h2 id="modal-title">Thêm tiết học</h2><button class="close" type="button" onclick="closeModal()" aria-label="Đóng">×</button></div>
+      <div class="form-field"><label for="subject">Môn học</label><input id="subject" required placeholder="Ví dụ: Hóa học"></div>
+      <div class="form-row"><div class="form-field"><label for="time">Giờ học</label><input id="time" type="time" required></div><div class="form-field"><label for="room">Phòng học</label><input id="room" placeholder="Ví dụ: C204"></div></div>
+      <div class="form-field"><label for="teacher">Giáo viên</label><input id="teacher" placeholder="Tên giáo viên"></div>
+      <button class="modal-submit" type="submit">Lưu vào lịch hôm nay</button>
+    </form>
+  </div>
+
+  <div class="message-backdrop" id="message-modal" role="dialog" aria-modal="true" aria-labelledby="message-title">
+    <div class="message-box">
+      <h2 id="message-title">Thông báo</h2>
+      <p id="message-text"></p>
+      <div class="message-actions"><button class="message-cancel" id="message-cancel" type="button">Hủy</button><button class="message-confirm" id="message-confirm" type="button">Đồng ý</button></div>
+    </div>
+  </div>
+
+  <script>
+    const sessionProfile = JSON.parse(localStorage.getItem('user.profile') || '{}');
+    if (sessionProfile.role === 'parent') window.location.replace('../ChucnangPH.html');
+
+    document.querySelectorAll('.check').forEach(function (checkbox) {
+      checkbox.addEventListener('change', function () { checkbox.closest('.assignment').classList.toggle('done', checkbox.checked); });
+    });
+
+    function openModal(event) { event.preventDefault(); document.getElementById('modal').classList.add('open'); document.getElementById('subject').focus(); }
+    function closeModal() { document.getElementById('modal').classList.remove('open'); }
+
+    function addSchedule(event) {
+      event.preventDefault();
+      const subject = document.getElementById('subject').value;
+      const time = document.getElementById('time').value;
+      const room = document.getElementById('room').value || 'Chưa cập nhật phòng';
+      const teacher = document.getElementById('teacher').value || 'Chưa cập nhật giáo viên';
+      const row = document.createElement('div');
+      row.className = 'schedule-row';
+      row.innerHTML = '<span class="schedule-time">' + time + '</span><i class="schedule-line"></i><div><strong>' + subject + '</strong><span>' + room + ' · ' + teacher + '</span></div>';
+      document.getElementById('schedule-list').appendChild(row);
+      event.target.reset();
+      closeModal();
+    }
+
+    function sendMessage(event) {
+      event.preventDefault();
+      const input = document.getElementById('question');
+      const question = input.value.trim();
+      if (!question) return;
+      const chat = document.getElementById('chat');
+      const userMessage = document.createElement('div');
+      userMessage.className = 'message user';
+      userMessage.textContent = question;
+      chat.appendChild(userMessage);
+      const answer = document.createElement('div');
+      answer.className = 'message';
+      answer.textContent = 'Mình đã nhận câu hỏi. Bạn hãy gửi thêm đề bài hoặc ảnh bài tập để mình hướng dẫn từng bước nhé!';
+      chat.appendChild(answer);
+      input.value = '';
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    function showAllAssignments(event) {
+      event.preventDefault();
+      showMessage('Danh sách bài tập', 'Bạn đang xem 4 bài tập trong danh sách hôm nay.');
+    }
+
+    const profile = JSON.parse(localStorage.getItem('user.profile') || '{}');
+    const profileName = profile.name || 'Minh Anh';
+    const profileClass = profile.className || '8A1';
+    const profileRole = profile.role === 'parent' ? 'Phụ huynh' : 'Học sinh';
+    const isParent = profile.role === 'parent';
+    const parentNav = document.getElementById('parent-nav');
+    if (!isParent) parentNav.remove();
+    document.getElementById('profile-name').textContent = profileName;
+    document.getElementById('profile-class').textContent = 'Lớp ' + profileClass;
+    document.getElementById('profile-role').textContent = profileRole;
+    document.getElementById('welcome-title').textContent = 'Chào bạn, ' + profileName + '.';
+    document.getElementById('profile-avatar').textContent = profileName.split(/\s+/).map(function (part) { return part[0]; }).join('').slice(0, 2).toUpperCase();
+
+    function logout() {
+      showConfirm('Đăng xuất', 'Bạn có chắc muốn đăng xuất khỏi tài khoản này không?', function () {
+        localStorage.removeItem('user.profile');
+        window.location.href = '../Login/';
+      });
+    }
+
+    function showMessage(title, text) {
+      const modal = document.getElementById('message-modal');
+      document.getElementById('message-title').textContent = title;
+      document.getElementById('message-text').textContent = text;
+      document.getElementById('message-cancel').hidden = true;
+      document.getElementById('message-confirm').textContent = 'Đóng';
+      document.getElementById('message-confirm').classList.remove('danger');
+      document.getElementById('message-confirm').onclick = closeMessage;
+      modal.classList.add('open');
+    }
+
+    function showConfirm(title, text, onConfirm) {
+      const modal = document.getElementById('message-modal');
+      document.getElementById('message-title').textContent = title;
+      document.getElementById('message-text').textContent = text;
+      document.getElementById('message-cancel').hidden = false;
+      document.getElementById('message-confirm').textContent = 'Đăng xuất';
+      document.getElementById('message-confirm').classList.add('danger');
+      document.getElementById('message-cancel').onclick = closeMessage;
+      document.getElementById('message-confirm').onclick = function () { closeMessage(); onConfirm(); };
+      modal.classList.add('open');
+    }
+
+    function closeMessage() {
+      document.getElementById('message-modal').classList.remove('open');
+    }
+
+    function updateCurrentDate() {
+      const now = new Date();
+      const dateText = now.toLocaleDateString('vi-VN', {
+        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+      });
+      const timeText = now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+      document.getElementById('current-date').textContent = dateText + ' · ' + timeText;
+    }
+    updateCurrentDate();
+    setInterval(updateCurrentDate, 60000);
+  </script>
+</body>
+</html>
