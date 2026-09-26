@@ -1,5 +1,5 @@
-importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/12.19.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/12.19.0/firebase-messaging-compat.js');
 
 // Service workers run in the browser, so process.env is unavailable here.
 // Keep the public Firebase web configuration in this file for background push.
@@ -22,7 +22,23 @@ if (firebaseConfig.apiKey && firebaseConfig.projectId) {
       body: payload.notification?.body || '',
       icon: '/static/studysync-icon.svg',
       badge: '/static/studysync-icon.svg',
+      data: { url: payload.data?.url || payload.fcmOptions?.link || '/student' },
     };
     self.registration.showNotification(title, options);
   });
 }
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl = new URL(event.notification.data?.url || '/student', self.location.origin).href;
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of windows) {
+      if (client.url.startsWith(self.location.origin) && 'focus' in client) {
+        await client.navigate(targetUrl);
+        return client.focus();
+      }
+    }
+    return self.clients.openWindow(targetUrl);
+  })());
+});

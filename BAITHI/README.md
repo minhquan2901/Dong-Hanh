@@ -67,6 +67,19 @@ Tính năng AI đang tạm tắt. Không cần API key để chạy StudySync.
 4. Chọn repository, branch và file chính `parent_app.py` nếu deploy bản Streamlit.
 5. Bấm **Deploy**. Streamlit sẽ cấp một đường link công khai cho website.
 
-## Lưu ý dữ liệu
+## Push notification trên máy tính
 
-Bản local lưu thời khóa biểu và bài tập vào JSON. Push notification trực tiếp đến điện thoại cần bổ sung Firebase Cloud Messaging hoặc Telegram Bot với backend scheduler; trang **Thông báo** hiện là trung tâm nhắc việc trong app.
+Ứng dụng hỗ trợ Firebase Cloud Messaging (FCM) trên trình duyệt desktop. Push nền cần HTTPS, quyền thông báo, VAPID key và Firebase service account. Điện thoại không được đăng ký nhận push trong giao diện hiện tại.
+
+Khai báo các biến trong môi trường deploy, không commit giá trị bí mật:
+
+- `FCM_ENABLED=true`
+- `FIREBASE_PROJECT_ID`
+- `FIREBASE_VAPID_KEY` (Firebase Console → Project Settings → Cloud Messaging → Web Push certificates)
+- `FIREBASE_SERVICE_ACCOUNT_JSON` (nội dung JSON service account; giữ riêng trong Render Environment)
+- `PUBLIC_APP_URL` (URL HTTPS của ứng dụng Render)
+- `PUSH_CRON_SECRET` (chuỗi ngẫu nhiên dài để bảo vệ endpoint nhắc deadline)
+
+Sau khi bật push trên máy tính, trình duyệt đăng ký service worker và gắn token FCM với tài khoản học sinh. Khi nhiệm vụ được thêm/hoàn thành hoặc thời khóa biểu thay đổi, máy tính đã đăng ký sẽ nhận push. Workflow `.github/workflows/desktop-push-reminders.yml` chạy hằng ngày lúc 21:00 giờ Việt Nam để gửi nhắc các nhiệm vụ đến hạn ngày hôm sau. Thêm repository secrets `PUSH_CRON_URL` (ví dụ `https://dong-hanh.onrender.com`) và `PUSH_CRON_SECRET` trong GitHub để bật lịch này.
+
+Thời khóa biểu, nhiệm vụ, tài khoản và token push hiện lưu trên filesystem/SQLite của dịch vụ. Trên Render, cần gắn persistent disk hoặc chuyển sang database bền vững để dữ liệu không mất khi instance được thay thế.

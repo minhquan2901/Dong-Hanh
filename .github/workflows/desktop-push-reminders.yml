@@ -1,0 +1,21 @@
+name: Desktop push deadline reminders
+
+on:
+  schedule:
+    - cron: "0 14 * * *"
+  workflow_dispatch:
+
+jobs:
+  send-reminders:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send due-tomorrow desktop push notifications
+        env:
+          PUSH_CRON_URL: ${{ secrets.PUSH_CRON_URL }}
+          PUSH_CRON_SECRET: ${{ secrets.PUSH_CRON_SECRET }}
+        run: |
+          test -n "$PUSH_CRON_URL"
+          test -n "$PUSH_CRON_SECRET"
+          curl --fail-with-body --silent --show-error \
+            -X POST "${PUSH_CRON_URL%/}/api/internal/push-due" \
+            -H "X-Cron-Secret: ${PUSH_CRON_SECRET}"

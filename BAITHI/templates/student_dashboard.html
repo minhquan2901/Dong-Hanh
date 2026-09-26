@@ -174,7 +174,7 @@
           <small id="user-role">Student</small>
         </div>
         <button id="theme-toggle" class="theme-toggle" type="button">Chế độ tối</button>
-        <button id="web-notification-toggle" class="web-notification-toggle" type="button">Bật thông báo web</button>
+        <button id="web-notification-toggle" class="web-notification-toggle" type="button">Bật thông báo máy tính</button>
         <button class="logout" type="button" onclick="logout()">Đăng xuất</button>
       </div>
     </header>
@@ -316,23 +316,27 @@
       const seenAlertsKey = `studysync-seen-alerts-${user.username}`;
 
       function updateWebNotificationButton() {
+        if (webNotificationToggle.hidden) return;
         const enabled = localStorage.getItem(`studysync-web-notifications-${user.username}`) === 'true';
         webNotificationToggle.classList.toggle('enabled', enabled);
-        webNotificationToggle.textContent = enabled ? 'Đã bật thông báo' : 'Bật thông báo web';
+        webNotificationToggle.textContent = enabled ? 'Đã bật thông báo máy tính' : 'Bật thông báo máy tính';
       }
 
+      const isPhoneBrowser = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+      webNotificationToggle.hidden = isPhoneBrowser;
       webNotificationToggle.addEventListener('click', async () => {
-        if (!('Notification' in window)) {
-          showWebToast('Thông báo web', 'Trình duyệt này không hỗ trợ thông báo hệ thống.');
-          return;
-        }
-        const permission = await Notification.requestPermission();
-        if (permission === 'granted') {
+        webNotificationToggle.disabled = true;
+        try {
+          const { enableWebNotifications, listenForForegroundMessages } = await import('/firebase-notifications.js');
+          await enableWebNotifications(user.username);
+          listenForForegroundMessages((title, body) => showWebToast(title, body));
           localStorage.setItem(`studysync-web-notifications-${user.username}`, 'true');
           updateWebNotificationButton();
-          showWebToast('Đã bật thông báo web', 'Bạn sẽ nhận được nhắc nhở ngay trên trình duyệt.');
-        } else {
-          showWebToast('Chưa bật thông báo', 'Bạn có thể cho phép thông báo trong cài đặt trình duyệt.');
+          showWebToast('Đã bật thông báo máy tính', 'Thông báo có thể đến khi bạn đóng tab; hãy giữ trình duyệt chạy nền.');
+        } catch (error) {
+          showWebToast('Chưa bật được thông báo', error.message || 'Hãy kiểm tra cấu hình Firebase và quyền thông báo.');
+        } finally {
+          webNotificationToggle.disabled = false;
         }
       });
       updateWebNotificationButton();
@@ -353,7 +357,7 @@
           if (seen.includes(key)) return;
           seen.push(key);
           showWebToast(alert.title, alert.message);
-          if (Notification.permission === 'granted') {
+          if (!isPhoneBrowser && 'Notification' in window && Notification.permission === 'granted') {
             new Notification(alert.title, { body: alert.message, icon: '/static/studysync-icon.svg', badge: '/static/studysync-icon.svg' });
           }
         });
@@ -394,6 +398,7 @@
           period: Number(document.getElementById('editor-period').value),
           subject: document.getElementById('editor-subject').value.trim(),
           lecturer: document.getElementById('editor-lecturer').value.trim(),
+          username: user.username,
         };
         const response = await fetch('/api/schedule/slot', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         const result = await response.json();
@@ -418,6 +423,7 @@
           subject: document.getElementById('task-subject').value.trim(),
           due_date: document.getElementById('task-due-date').value,
           priority: document.getElementById('task-priority').value,
+          username: user.username,
         };
         const response = await fetch('/api/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         const result = await response.json();
@@ -620,7 +626,7 @@
         if (!confirm('Xóa tiết học này?')) return;
         const response = await fetch('/api/schedule/slot', {
           method: 'DELETE', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ session, day, period }),
+          body: JSON.stringify({ session, day, period, username: user.username }),
         });
         const result = await response.json();
         if (!response.ok) { showWebToast('Không thể xóa tiết học', result.detail || 'Vui lòng thử lại.'); return; }
@@ -651,7 +657,7 @@
       }
 
       async function toggleTask(taskId, completed) {
-        const response = await fetch(`/api/assignments/${encodeURIComponent(taskId)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ completed }) });
+        const response = await fetch(`/api/assignments/${encodeURIComponent(taskId)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ completed, username: user.username }) });
         const result = await response.json();
         if (!response.ok) { showWebToast('Không thể cập nhật nhiệm vụ', result.detail || 'Vui lòng thử lại.'); return; }
         showWebToast(result.notification?.title || 'Đã cập nhật nhiệm vụ', result.notification?.message || result.message);

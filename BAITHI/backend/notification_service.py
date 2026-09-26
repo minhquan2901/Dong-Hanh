@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -18,25 +19,56 @@ load_dotenv(ROOT / ".env")
 
 DEVICE_TOKEN_FILE = ROOT / "data" / "device_tokens.json"
 WEB_TOKEN_FILE = ROOT / "data" / "web_tokens.json"
+WEB_PUSH_SUBSCRIPTIONS_FILE = ROOT / "data" / "web_push_subscriptions.json"
+PUSH_REMINDER_STATE_FILE = ROOT / "data" / "push_reminder_state.json"
 MOBILE_TOKEN_FILE = ROOT / "data" / "mobile_tokens.json"
 EMAIL_PREFERENCES_FILE = ROOT / "data" / "email_preferences.json"
 GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "")
+FIREBASE_SERVICE_ACCOUNT_JSON = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "")
 FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", "")
+FIREBASE_VAPID_KEY = os.getenv("FIREBASE_VAPID_KEY", "")
 FCM_ENABLED = os.getenv("FCM_ENABLED", "false").strip().lower() == "true"
+PUBLIC_APP_URL = os.getenv("PUBLIC_APP_URL", "http://localhost:8000").rstrip("/")
 SMTP_HOST = os.getenv("SMTP_HOST", "")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER or "noreply@studysync.local")
 
-if GOOGLE_APPLICATION_CREDENTIALS:
-    cert_path = ROOT / GOOGLE_APPLICATION_CREDENTIALS.strip().replace("./", "")
-    if cert_path.exists():
-        cred = credentials.Certificate(str(cert_path))
+def _ensure_firebase_app() -> bool:
+    try:
+        firebase_admin.get_app()
+        return True
+    except ValueError:
+        pass
+
+    credential_data: dict[str, Any] | str | None = None
+    if FIREBASE_SERVICE_ACCOUNT_JSON:
         try:
-            firebase_admin.get_app()
-        except ValueError:
-            firebase_admin.initialize_app(cred, {"projectId": FIREBASE_PROJECT_ID or None})
+            credential_data = json.loads(FIREBASE_SERVICE_ACCOUNT_JSON)
+        except json.JSONDecodeError:
+            return False
+    elif GOOGLE_APPLICATION_CREDENTIALS:
+        cert_path = ROOT / GOOGLE_APPLICATION_CREDENTIALS.strip().replace("./", "")
+        if cert_path.exists():
+            credential_data = str(cert_path)
+
+    if credential_data is None:
+        return False
+
+    try:
+        credential = credentials.Certificate(credential_data)
+        firebase_admin.initialize_app(
+            credential,
+            {"projectId": FIREBASE_PROJECT_ID} if FIREBASE_PROJECT_ID else None,
+        )
+    except (ValueError, OSError):
+        return False
+    return True
+
+
+def firebase_push_ready() -> bool:
+    return FCM_ENABLED and bool(FIREBASE_VAPID_KEY) and _ensure_firebase_app()
 
 
 def _ensure_store(path: Path) -> None:
@@ -68,6 +100,40 @@ def _read_json(path: Path, default: Any) -> Any:
 def _write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def register_user_web_token(username: str, token: str) -> int:
+    clean_username = str(username or "").strip()
+    clean_token = str(token or "").strip()
+    if not clean_username or not clean_token:
+        raise ValueError("Tên tài khoản và token trình duyệt không được để trống.")
+
+    subscriptions = _read_json(WEB_PUSH_SUBSCRIPTIONS_FILE, {})
+    if not isinstance(subscriptions, dict):
+        subscriptions = {}
+    tokens = subscriptions.get(clean_username, [])
+    if not isinstance(tokens, list):
+        tokens = []
+    if clean_token not in tokens:
+        tokens.append(clean_token)
+    subscriptions[clean_username] = tokens
+    _write_json(WEB_PUSH_SUBSCRIPTIONS_FILE, subscriptions)
+    return len(tokens)
+
+
+def get_user_web_tokens(username: str) -> list[str]:
+    subscriptions = _read_json(WEB_PUSH_SUBSCRIPTIONS_FILE, {})
+    if not isinstance(subscriptions, dict):
+        return []
+    tokens = subscriptions.get(str(username or "").strip(), [])
+    return [str(token) for token in tokens if str(token).strip()] if isinstance(tokens, list) else []
+
+
+def get_web_push_usernames() -> list[str]:
+    subscriptions = _read_json(WEB_PUSH_SUBSCRIPTIONS_FILE, {})
+    if not isinstance(subscriptions, dict):
+        return []
+    return [str(username) for username, tokens in subscriptions.items() if isinstance(tokens, list) and tokens]
 
 
 def register_device_token(token: str, device_type: str = "mobile") -> list[str]:
@@ -240,22 +306,90 @@ def build_notification_payloads() -> list[dict[str, str]]:
     return payloads
 
 
-def send_fcm_message(token: str, title: str, body: str) -> dict[str, Any]:
+def send_fcm_message(
+    token: str,
+    title: str,
+    body: str,
+    web_link: str | None = None,
+) -> dict[str, Any]:
     if not FCM_ENABLED:
-        return {"status": "disabled", "token": token, "title": title, "body": body}
+        return {"status": "disabled", "title": title, "body": body}
 
-    if not GOOGLE_APPLICATION_CREDENTIALS:
-        return {"status": "missing_service_account", "token": token, "title": title, "body": body}
+    if not _ensure_firebase_app():
+        return {"status": "missing_service_account", "title": title, "body": body}
 
     try:
+        webpush = messaging.WebpushConfig(
+            notification=messaging.WebpushNotification(
+                icon=f"{PUBLIC_APP_URL}/static/studysync-icon.svg",
+                badge=f"{PUBLIC_APP_URL}/static/studysync-icon.svg",
+            ),
+            fcm_options=messaging.WebpushFCMOptions(link=web_link or f"{PUBLIC_APP_URL}/student"),
+        )
         message = messaging.Message(
             notification=messaging.Notification(title=title, body=body),
+            webpush=webpush,
             token=token,
         )
         response = messaging.send(message)
-        return {"status": "sent", "message_id": response, "token": token, "title": title, "body": body}
+        return {"status": "sent", "message_id": response, "title": title, "body": body}
     except Exception as exc:  # pragma: no cover - runtime integration path
-        return {"status": "error", "token": token, "title": title, "body": body, "error": str(exc)}
+        return {"status": "error", "title": title, "body": body, "error": str(exc)}
+
+
+def send_web_push_to_user(
+    username: str,
+    title: str,
+    body: str,
+    path: str = "/student",
+) -> list[dict[str, Any]]:
+    link = f"{PUBLIC_APP_URL}/{path.lstrip('/')}"
+    return [
+        send_fcm_message(token, title, body, web_link=link)
+        for token in get_user_web_tokens(username)
+    ]
+
+
+def send_due_task_reminders(today: date | None = None) -> list[dict[str, Any]]:
+    target_day = (today or date.today()) + timedelta(days=1)
+    assignments = StudyBus().assignments()
+    usernames = get_web_push_usernames()
+    sent_state = _read_json(PUSH_REMINDER_STATE_FILE, {})
+    if not isinstance(sent_state, dict):
+        sent_state = {}
+
+    results: list[dict[str, Any]] = []
+    changed = False
+    for task in assignments:
+        if task.get("completed"):
+            continue
+        try:
+            due_date = datetime.fromisoformat(str(task.get("due_date", ""))).date()
+        except ValueError:
+            continue
+        if due_date != target_day:
+            continue
+
+        task_id = str(task.get("id", ""))
+        for username in usernames:
+            reminder_key = f"{username}|{task_id}|{target_day.isoformat()}"
+            if sent_state.get(reminder_key):
+                continue
+            token_results = send_web_push_to_user(
+                username,
+                "Nhiệm vụ còn 1 ngày",
+                f"{task.get('title', 'Nhiệm vụ')} · {task.get('subject', '')} · hạn {target_day:%d/%m/%Y}.",
+                "/student#assignments",
+            )
+            was_sent = any(item.get("status") == "sent" for item in token_results)
+            results.append({"username": username, "task_id": task_id, "sent": was_sent, "devices": len(token_results)})
+            if was_sent:
+                sent_state[reminder_key] = datetime.now().isoformat(timespec="seconds")
+                changed = True
+
+    if changed:
+        _write_json(PUSH_REMINDER_STATE_FILE, sent_state)
+    return results
 
 
 def send_push_notification(token: str, title: str, body: str) -> dict[str, Any]:

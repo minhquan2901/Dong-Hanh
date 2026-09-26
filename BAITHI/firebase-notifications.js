@@ -17,8 +17,6 @@ const firebaseConfig = {
   measurementId: "G-30CJXLJR9W",
 };
 
-const BACKEND_URL = "http://localhost:8000";
-const VAPID_KEY = "YOUR_FIREBASE_WEB_PUSH_CERTIFICATE_KEY_PAIR";
 const SERVICE_WORKER_PATH = "/firebase-messaging-sw.js";
 
 const app = initializeApp(firebaseConfig);
@@ -58,22 +56,36 @@ async function requestNotificationPermission() {
   return permission;
 }
 
-async function registerWebToken(token) {
-  const response = await fetch(`${BACKEND_URL}/device/register`, {
+async function registerWebToken(username, token) {
+  const response = await fetch("/api/push/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token, device_type: "web" }),
+    body: JSON.stringify({ username, token }),
   });
 
   if (!response.ok) {
-    throw new Error(`Backend đăng ký token thất bại: HTTP ${response.status}`);
+    const result = await response.json().catch(() => ({}));
+    throw new Error(result.detail || `Backend đăng ký token thất bại: HTTP ${response.status}`);
   }
   return response.json();
 }
 
-export async function enableWebNotifications() {
-  if (VAPID_KEY.startsWith("YOUR_")) {
-    throw new Error("Hãy thay VAPID_KEY bằng Web Push certificate key pair trong Firebase Console.");
+export function isDesktopBrowser() {
+  return !/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+}
+
+export async function enableWebNotifications(username) {
+  if (!isDesktopBrowser()) {
+    throw new Error("Thông báo đẩy hiện chỉ bật trên máy tính.");
+  }
+  if (!username) {
+    throw new Error("Không xác định được tài khoản đang đăng nhập.");
+  }
+
+  const configResponse = await fetch("/api/push/config", { cache: "no-store" });
+  const pushConfig = await configResponse.json();
+  if (!configResponse.ok || !pushConfig.ready || !pushConfig.vapid_key) {
+    throw new Error("Máy chủ chưa cấu hình Firebase FCM và VAPID key.");
   }
 
   await requestNotificationPermission();
@@ -81,7 +93,7 @@ export async function enableWebNotifications() {
   await initializeMessaging();
 
   const token = await getToken(messaging, {
-    vapidKey: VAPID_KEY,
+    vapidKey: pushConfig.vapid_key,
     serviceWorkerRegistration,
   });
 
@@ -89,7 +101,7 @@ export async function enableWebNotifications() {
     throw new Error("Firebase không tạo được web FCM token.");
   }
 
-  await registerWebToken(token);
+  await registerWebToken(username, token);
   return token;
 }
 
@@ -122,26 +134,4 @@ export async function initializeFirebaseNotifications() {
   return app;
 }
 
-export { app, firebaseConfig, BACKEND_URL };
-
-// Optional convenience hook: add data-enable-web-notifications to any button.
-document.addEventListener("click", async (event) => {
-  const button = event.target.closest("[data-enable-web-notifications]");
-  if (!button) {
-    return;
-  }
-
-  button.disabled = true;
-  try {
-    await enableWebNotifications();
-    button.dispatchEvent(new CustomEvent("web-notifications-enabled", { bubbles: true }));
-  } catch (error) {
-    console.error("Không thể bật Firebase Web Notification:", error);
-    button.dispatchEvent(new CustomEvent("web-notifications-error", {
-      bubbles: true,
-      detail: error,
-    }));
-  } finally {
-    button.disabled = false;
-  }
-});
+export { app, firebaseConfig };

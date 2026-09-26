@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import os
+import secrets
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import RedirectResponse
+from fastapi import FastAPI, Header, HTTPException, Query, Request
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -21,6 +23,13 @@ from auth_service import (
     set_pin_login_enabled,
     update_linked_student,
     verify_secondary_pin,
+)
+from backend.notification_service import (
+    FIREBASE_VAPID_KEY,
+    firebase_push_ready,
+    register_user_web_token,
+    send_due_task_reminders,
+    send_web_push_to_user,
 )
 from bus.study_bus import StudyBus
 
@@ -68,12 +77,14 @@ class ScheduleSlotPayload(BaseModel):
     period: int
     subject: str
     lecturer: str = ""
+    username: str | None = None
 
 
 class ScheduleSlotDeletePayload(BaseModel):
     session: str
     day: str
     period: int
+    username: str | None = None
 
 
 class AssignmentPayload(BaseModel):
@@ -81,10 +92,17 @@ class AssignmentPayload(BaseModel):
     subject: str
     due_date: date
     priority: str = "Trung bình"
+    username: str | None = None
 
 
 class AssignmentCompletionPayload(BaseModel):
     completed: bool
+    username: str | None = None
+
+
+class WebPushRegistrationPayload(BaseModel):
+    username: str
+    token: str
 
 
 class SecondaryPinSetupPayload(BaseModel):
@@ -214,6 +232,49 @@ def root() -> RedirectResponse:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "StudySync Unified App"}
+
+
+@app.get("/firebase-messaging-sw.js")
+def firebase_messaging_service_worker() -> FileResponse:
+    return FileResponse(ROOT / "firebase-messaging-sw.js", media_type="application/javascript")
+
+
+@app.get("/firebase-notifications.js")
+def firebase_notifications_module() -> FileResponse:
+    return FileResponse(ROOT / "firebase-notifications.js", media_type="application/javascript")
+
+
+@app.get("/api/push/config")
+def web_push_config() -> dict[str, bool | str]:
+    return {
+        "vapid_key": FIREBASE_VAPID_KEY,
+        "ready": firebase_push_ready(),
+        "desktop_only": True,
+    }
+
+
+@app.post("/api/push/register")
+def register_web_push(payload: WebPushRegistrationPayload):
+    user = get_user_by_username(payload.username)
+    if not user or user.get("role") != "student":
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản học sinh.")
+    if not payload.token.strip():
+        raise HTTPException(status_code=400, detail="Token thông báo không hợp lệ.")
+    try:
+        count = register_user_web_token(payload.username, payload.token)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"message": "Đã bật thông báo trên máy tính này.", "registered_desktop_devices": count}
+
+
+@app.post("/api/internal/push-due")
+def trigger_due_task_pushes(x_cron_secret: str | None = Header(default=None, alias="X-Cron-Secret")):
+    expected_secret = os.getenv("PUSH_CRON_SECRET", "")
+    if not expected_secret:
+        raise HTTPException(status_code=503, detail="Chưa cấu hình PUSH_CRON_SECRET.")
+    if not x_cron_secret or not secrets.compare_digest(x_cron_secret, expected_secret):
+        raise HTTPException(status_code=403, detail="Không được phép gọi tác vụ này.")
+    return {"reminders": send_due_task_reminders()}
 
 
 @app.get("/login")
@@ -420,6 +481,13 @@ def update_schedule_slot(payload: ScheduleSlotPayload):
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if payload.username:
+        send_web_push_to_user(
+            payload.username,
+            "Đã cập nhật thời khóa biểu",
+            f"Đã lưu {item.get('subject', 'tiết học')} vào thứ {payload.day}, tiết {payload.period}.",
+            "/student#schedule",
+        )
     return {
         "message": "Đã cập nhật thời khóa biểu.",
         "notification": {
@@ -435,6 +503,13 @@ def delete_schedule_slot(payload: ScheduleSlotDeletePayload):
     deleted = StudyBus().delete_schedule_slot(payload.session, payload.day, payload.period)
     if not deleted:
         raise HTTPException(status_code=404, detail="Không tìm thấy tiết học.")
+    if payload.username:
+        send_web_push_to_user(
+            payload.username,
+            "Đã cập nhật thời khóa biểu",
+            "Một tiết học đã được xóa khỏi thời khóa biểu.",
+            "/student#schedule",
+        )
     return {"message": "Đã xóa tiết học."}
 
 
@@ -446,13 +521,30 @@ def create_assignment(payload: AssignmentPayload):
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if payload.username:
+        send_web_push_to_user(
+            payload.username,
+            "Có nhiệm vụ mới",
+            f"{item['title']} · hạn {item['due_date']}.",
+            "/student#assignments",
+        )
     return {"message": "Đã thêm nhiệm vụ.", "assignment": item}
 
 
 @app.patch("/api/assignments/{assignment_id}")
 def update_assignment(assignment_id: str, payload: AssignmentCompletionPayload):
-    if not StudyBus().set_completed(assignment_id, payload.completed):
+    study = StudyBus()
+    if not study.set_completed(assignment_id, payload.completed):
         raise HTTPException(status_code=404, detail="Không tìm thấy nhiệm vụ.")
+    if payload.username and payload.completed:
+        task = next((item for item in study.assignments() if item.get("id") == assignment_id), None)
+        title = str(task.get("title", "nhiệm vụ")) if task else "nhiệm vụ"
+        send_web_push_to_user(
+            payload.username,
+            "Đã hoàn thành nhiệm vụ",
+            f"Bạn đã hoàn thành: {title}.",
+            "/student#assignments",
+        )
     return {
         "message": "Đã cập nhật trạng thái nhiệm vụ.",
         "notification": {
