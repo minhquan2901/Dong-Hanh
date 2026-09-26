@@ -157,14 +157,15 @@
         submitBtn.textContent = mode === 'register' ? 'Tạo tài khoản' : 'Đăng nhập';
         currentMode = mode;
         const isRegister = mode === 'register';
+        const isStudent = document.getElementById('role').value === 'student';
         extraFields.style.display = isRegister ? 'grid' : 'none';
-        classRow.style.display = isRegister ? 'block' : 'none';
+        classRow.style.display = isRegister && isStudent ? 'block' : 'none';
         modeButtons.forEach((button) => {
           const active = button.dataset.mode === mode;
           button.classList.toggle('active', active);
         });
-        fullNameField.style.display = isRegister && document.getElementById('role').value === 'student' ? 'grid' : 'none';
-        fullNameInput.required = isRegister && document.getElementById('role').value === 'student';
+        fullNameField.style.display = isRegister && isStudent ? 'grid' : 'none';
+        fullNameInput.required = isRegister && isStudent;
         messageBox.className = 'message';
       }
 
@@ -175,8 +176,12 @@
       document.getElementById('role').addEventListener('change', () => {
         const isStudent = document.getElementById('role').value === 'student';
         fullNameField.style.display = isStudent ? 'grid' : 'none';
+        classRow.style.display = isStudent && currentMode === 'register' ? 'block' : 'none';
         fullNameInput.required = isStudent;
-        if (!isStudent) fullNameInput.value = '';
+        if (!isStudent) {
+          fullNameInput.value = '';
+          document.getElementById('class_name').value = '';
+        }
       });
 
       function clearRegistrationDraft() {
