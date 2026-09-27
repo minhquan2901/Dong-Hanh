@@ -104,6 +104,27 @@ Owner đăng nhập tại `/owner`, không tạo qua form đăng ký và không 
 
 Nếu chưa có biến `STUDYSYNC_SESSION_SECRET`, ứng dụng tạo khóa ở `session_signing_secret.json` trong thư mục dữ liệu. Vì vậy cần cấu hình Persistent Disk và `STUDYSYNC_DATA_DIR` trước khi dùng owner trên hosting. Owner có thể xem thống kê thao tác tính năng thành công và quản lý trạng thái tài khoản; danh sách không trả về mật khẩu.
 
+Render tự động deploy lại mỗi khi có commit mới đẩy lên branch đang nối với service. Không cần cấu hình gì thêm trong code. Quy trình thực tế:
+
+1. Render Dashboard → service của bạn → **Settings**.
+2. Kiểm tra **Connected Branch** là `main` và repository `minhquan2901/Dong-Hanh`.
+3. Giữ **Auto-Deploy** bật (mặc định). Mỗi lần `git push origin main`, Render pull code mới, cài lại `requirements.txt` và khởi động lại ứng dụng.
+4. Theo dõi tiến trình ở tab **Events**; trạng thái khoẻ ở `/health`.
+
+Nếu bạn muốn kiểm soát thủ công, tắt Auto-Deploy rồi dùng **Deploy Hook**:
+
+1. Render Dashboard → service → **Settings → Deploy Hook** → **Create Deploy Hook**, sao chép URL.
+2. Thêm URL đó vào repository secrets trên GitHub với tên `RENDER_DEPLOY_HOOK_URL` (Settings → Secrets and variables → Actions).
+3. Workflow `.github/workflows/render-deploy.yml` sẽ gọi hook mỗi khi có push vào `main`.
+
+Lưu ý: biến môi trường và Persistent Disk được giữ nguyên qua các lần deploy; chỉ code mới được thay thế. Deploy lại khoảng 1–3 phút, trong lúc đó web có thể báo lỗi tạm thời. Nếu deploy thất bại, Render rollback về bản build trước đó nên web vẫn chạy.
+
+### Quản lý tài khoản, hồ sơ và hòm thư góp ý
+
+- Owner đăng nhập tại `/owner`: xem thống kê, **Khóa / Mở khóa** tài khoản, **Sửa** họ tên và lớp, và đọc hòm thư báo lỗi/góp ý của người dùng.
+- Người dùng vào `/account` để cập nhật họ tên, lớp, avatar và đặt lại mật khẩu. Nút tròn góc phải mở hộp thoại báo lỗi / góp ý.
+- Đổi mật khẩu hoặc bị khóa sẽ làm mọi phiên đang đăng nhập mất hiệu lực ngay (token phiên mang kèm `session_version`).
+
 ### Quyền riêng tư dữ liệu học sinh
 
 Thời khóa biểu và bài tập/nhiệm vụ được lưu theo username của học sinh. Dashboard học sinh chỉ truy vấn bản ghi của chính mình; dashboard phụ huynh tổng hợp dữ liệu riêng của các học sinh đã liên kết. Các thao tác hoàn thành/cập nhật/xóa cũng ràng buộc theo chủ sở hữu.

@@ -1,0 +1,26 @@
+name: Trigger Render deploy
+
+# Render tự động deploy khi push vào branch đang nối. Workflow này chỉ là dự phòng,
+# ví dụ khi bật "No Auto-Deploy" trên Render để kiểm soát thủ công.
+# Nó tự bỏ qua nếu chưa cấu hình secret RENDER_DEPLOY_HOOK_URL.
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  trigger-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Render deploy hook
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "${RENDER_DEPLOY_HOOK_URL}" ]; then
+            echo "Chưa cấu hình RENDER_DEPLOY_HOOK_URL, bỏ qua deploy."
+            exit 0
+          fi
+          curl --fail-with-body --silent --show-error \
+            -X POST "${RENDER_DEPLOY_HOOK_URL}"

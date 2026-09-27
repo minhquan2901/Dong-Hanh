@@ -1,0 +1,26 @@
+name: Web smoke test
+
+# Chạy test trước khi code lên Render. Nếu test lỗi thì deploy sẽ không tự chạy
+# nếu bạn bật "Wait for successful status checks" trong Render Settings.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Cài thư viện
+        run: pip install -r BAITHI/requirements.txt
+      - name: Chạy test
+        working-directory: BAITHI
+        run: python -m pytest -q
