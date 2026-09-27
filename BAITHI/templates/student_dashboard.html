@@ -474,7 +474,13 @@
 
       async function loadDashboard() {
         const response = await fetch(`/api/dashboard/student?username=${encodeURIComponent(user.username)}`);
-        const data = await response.json();
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          if (response.status === 404) {
+            throw new Error('Tài khoản trong phiên này không còn trên máy chủ. Hãy đăng xuất rồi đăng nhập bằng tài khoản đã đăng ký trên website.');
+          }
+          throw new Error(data.detail || `Không tải được dữ liệu (HTTP ${response.status}).`);
+        }
         assignmentsData = data.assignments;
         renderNotifications(data.alerts || []);
         notifyNewAlerts(data.alerts || []);
@@ -731,8 +737,9 @@
       }
 
       showView(window.location.hash.slice(1) || 'overview', false);
-      loadDashboard().catch(() => {
-        overallStatusTextEl.textContent = 'Không thể tải dữ liệu học tập';
+      loadDashboard().catch((error) => {
+        overallStatusTextEl.textContent = error.message || 'Không thể tải dữ liệu học tập';
+        showWebToast('Không tải được dữ liệu học tập', error.message || 'Hãy tải lại trang hoặc đăng nhập lại.');
       });
     </script>
   </body>
