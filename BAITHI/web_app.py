@@ -36,6 +36,7 @@ from owner_auth import (
     authenticate_owner,
     create_owner_token,
     create_user_token,
+    owner_configuration_error,
     verify_owner_token,
     verify_user_token,
 )
@@ -362,6 +363,9 @@ async def owner_dashboard_page(request: Request):
 
 @app.post("/api/owner/login", response_model=OwnerLoginResponse)
 def owner_login(payload: OwnerLoginPayload):
+    config_error = owner_configuration_error()
+    if config_error:
+        raise HTTPException(status_code=503, detail=config_error)
     if not authenticate_owner(payload.username, payload.password):
         raise HTTPException(status_code=401, detail="Thông tin đăng nhập owner không đúng.")
     try:

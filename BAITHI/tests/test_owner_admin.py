@@ -35,7 +35,7 @@ def test_owner_has_separate_login_and_can_manage_users(tmp_path, monkeypatch):
     assert client.get("/api/owner/overview").status_code == 401
 
     login = client.post("/api/owner/login", json={
-        "username": "site-owner",
+        "username": "SITE-OWNER",
         "password": "A-strong-owner-password-92",
     })
     assert login.status_code == 200
@@ -65,6 +65,18 @@ def test_owner_has_separate_login_and_can_manage_users(tmp_path, monkeypatch):
     assert client.post("/api/auth/login", json={
         "username": "student01", "password": "StudentPass1",
     }).status_code == 401
+
+
+def test_owner_login_reports_missing_environment_setup_safely(monkeypatch):
+    monkeypatch.delenv("OWNER_USERNAME", raising=False)
+    monkeypatch.delenv("OWNER_PASSWORD", raising=False)
+    response = TestClient(app).post("/api/owner/login", json={
+        "username": "owner", "password": "not-a-real-password",
+    })
+
+    assert response.status_code == 503
+    assert "OWNER_USERNAME" in response.json()["detail"]
+    assert "password" not in response.json()["detail"].lower()
 
 
 def test_only_valid_user_session_counts_feature_use(tmp_path, monkeypatch):

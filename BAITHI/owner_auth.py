@@ -27,9 +27,23 @@ def authenticate_owner(username: str, password: str) -> bool:
     expected_password = os.environ.get("OWNER_PASSWORD", "")
     if not expected_username or len(expected_password) < 12:
         return False
-    return hmac.compare_digest(str(username or "").strip(), expected_username) and hmac.compare_digest(
-        str(password or ""), expected_password
+    username_matches = hmac.compare_digest(
+        str(username or "").strip().casefold(), expected_username.casefold()
     )
+    password_matches = hmac.compare_digest(str(password or ""), expected_password)
+    return username_matches and password_matches
+
+
+def owner_configuration_error() -> str | None:
+    if not os.environ.get("OWNER_USERNAME", "").strip():
+        return "Chưa cấu hình OWNER_USERNAME trong Render Environment."
+    if len(os.environ.get("OWNER_PASSWORD", "")) < 12:
+        return "OWNER_PASSWORD chưa được cấu hình hoặc ngắn hơn 12 ký tự."
+    try:
+        _get_user_session_secret()
+    except (OSError, RuntimeError):
+        return "STUDYSYNC_SESSION_SECRET chưa hợp lệ hoặc chưa cấu hình persistent storage."
+    return None
 
 
 def _get_user_session_secret() -> str:
