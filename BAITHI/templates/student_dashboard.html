@@ -99,11 +99,15 @@
       .edit-button, .save-button, .cancel-button { border: 0; border-radius: 9px; padding: 9px 13px; font-weight: 700; cursor: pointer; }
       .edit-button, .save-button { background: var(--primary); color: #fff; }
       .cancel-button { background: #eef2f7; color: var(--text); }
-      .schedule-editor { display: none; grid-template-columns: repeat(5, minmax(110px, 1fr)); gap: 10px; padding: 14px; margin-bottom: 18px; border: 1px solid var(--line); border-radius: 12px; background: #f8fbff; }
+      .schedule-editor { display: none; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; padding: 14px; margin-bottom: 18px; border: 1px solid var(--line); border-radius: 12px; background: #f8fbff; }
       .schedule-editor.open { display: grid; }
       .schedule-editor label { display: grid; gap: 5px; color: var(--muted); font-size: .75rem; font-weight: 700; }
       .schedule-editor input, .schedule-editor select { width: 100%; min-height: 36px; border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; background: #fff; }
       .schedule-editor .editor-actions { display: flex; align-items: end; gap: 8px; }
+      .schedule-queue { display: none; grid-column: 1 / -1; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+      .schedule-queue.open { display: grid; }
+      .schedule-queue-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+      .schedule-queue-item button { border: 0; border-radius: 6px; padding: 6px 9px; color: #a32121; background: #fff1f1; cursor: pointer; }
       .cell-actions { display: none; gap: 4px; justify-content: center; }
       .editing .cell-actions { display: flex; }
       .cell-action { border: 0; border-radius: 6px; padding: 3px 6px; color: var(--primary); background: #dceaff; cursor: pointer; font-size: .68rem; }
@@ -280,20 +284,17 @@
           <h2 class="panel-title">Thời khóa biểu</h2>
           <p class="sub" style="margin-bottom: 16px;">Mỗi ô thể hiện môn học theo thứ và tiết.</p>
           <div class="schedule-actions">
-            <button id="open-bulk-schedule-button" class="edit-button" type="button">Thêm nhiều tiết</button>
             <button id="edit-schedule-button" class="edit-button" type="button">Chỉnh sửa thời khóa biểu</button>
           </div>
           <form id="schedule-editor" class="schedule-editor">
             <label>Buổi<select id="editor-session"><option value="morning">Buổi sáng</option><option value="afternoon">Buổi chiều</option></select></label>
             <label>Thứ<select id="editor-day"><option value="2">Thứ 2</option><option value="3">Thứ 3</option><option value="4">Thứ 4</option><option value="5">Thứ 5</option><option value="6">Thứ 6</option><option value="7">Thứ 7</option></select></label>
             <label>Tiết<select id="editor-period"><option value="1">Tiết 1</option><option value="2">Tiết 2</option><option value="3">Tiết 3</option><option value="4">Tiết 4</option><option value="5">Tiết 5</option></select></label>
+            <label>Loại tiết<select id="editor-duration"><option value="1">Tiết đơn</option><option value="2">Tiết đôi</option></select></label>
             <label>Môn học<input id="editor-subject" required placeholder="Ví dụ: Toán"></label>
             <label>Giáo viên<input id="editor-lecturer" placeholder="Ví dụ: T.Thọ"></label>
-            <div class="editor-actions"><button class="save-button" type="submit">Lưu tiết</button><button id="cancel-edit" class="cancel-button" type="button">Hủy</button></div>
-          </form>
-          <form id="bulk-schedule-editor" class="schedule-editor" style="margin-top: 12px;">
-            <label style="grid-column: 1 / -1;">Nhập nhiều tiết cùng lúc (mỗi dòng: morning,2,1,Toán,Cô An)<textarea id="bulk-schedule-input" rows="6" placeholder="morning,2,1,Toán,Cô An\nafternoon,3,2,Lý,Thầy Bình\n..." style="width: 100%; min-height: 120px; resize: vertical; border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: #fff;"></textarea></label>
-            <div class="editor-actions" style="grid-column: 1 / -1;"><button class="save-button" type="submit">Thêm nhiều tiết</button><button id="cancel-bulk-edit" class="cancel-button" type="button">Đóng</button></div>
+            <div class="editor-actions" style="grid-column: 1 / -1;"><button class="save-button" type="submit">Thêm vào danh sách</button><button id="save-schedule-queue" class="edit-button" type="button">Lưu tất cả</button><button id="cancel-edit" class="cancel-button" type="button">Xóa danh sách</button></div>
+            <div id="schedule-queue" class="schedule-queue" aria-live="polite"></div>
           </form>
           <h3 class="panel-title" style="font-size: 1rem;">Buổi sáng</h3>
           <div id="morning-schedule" class="schedule-table-wrap"></div>
@@ -358,9 +359,9 @@
       const taskbarLinks = document.querySelectorAll('.taskbar a');
       const views = document.querySelectorAll('.view');
       const editor = document.getElementById('schedule-editor');
-      const bulkEditor = document.getElementById('bulk-schedule-editor');
       const editScheduleButton = document.getElementById('edit-schedule-button');
-      const openBulkScheduleButton = document.getElementById('open-bulk-schedule-button');
+      const scheduleQueueElement = document.getElementById('schedule-queue');
+      const pendingScheduleEntries = [];
       const scheduleData = { morning: [], afternoon: [] };
       let assignmentsData = [];
       let taskFilter = 'all';
@@ -468,87 +469,106 @@
         editScheduleButton.textContent = open ? 'Đang chỉnh sửa' : 'Chỉnh sửa thời khóa biểu';
       }
 
-      function setBulkScheduleEditor(open) {
-        bulkEditor.classList.toggle('open', open);
-      }
-
       editScheduleButton.addEventListener('click', async () => {
         setScheduleEditor(!editor.classList.contains('open'));
       });
-      openBulkScheduleButton.addEventListener('click', () => {
-        setBulkScheduleEditor(!bulkEditor.classList.contains('open'));
+      document.getElementById('cancel-edit').addEventListener('click', () => {
+        pendingScheduleEntries.length = 0;
+        renderScheduleQueue();
       });
-      document.getElementById('cancel-edit').addEventListener('click', () => setScheduleEditor(false));
-      document.getElementById('cancel-bulk-edit').addEventListener('click', () => setBulkScheduleEditor(false));
 
-      function parseBulkScheduleInput(raw) {
-        const lines = String(raw || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-        const slots = [];
-        for (const line of lines) {
-          const cells = line.split(/[;,|\t]+/).map((cell) => cell.trim()).filter(Boolean);
-          if (cells.length < 4) continue;
-          let session = cells[0].toLowerCase();
-          if (session.startsWith('s')) session = 'morning';
-          else if (session.startsWith('c')) session = 'afternoon';
-          const day = String(cells[1]).replace(/[^0-9]/g, '');
-          const period = Number(String(cells[2]).replace(/[^0-9]/g, ''));
-          const subject = cells[3];
-          const lecturer = cells[4] || '';
-          if (!['morning', 'afternoon'].includes(session) || !['2', '3', '4', '5', '6', '7'].includes(day) || Number.isNaN(period) || period < 1 || period > 5 || !subject) {
-            throw new Error(`Dòng không hợp lệ: "${line}". Định dạng đúng: morning,2,1,Toán,Cô An`);
-          }
-          slots.push({ session, day, period, subject, lecturer });
-        }
-        if (!slots.length) {
-          throw new Error('Bạn chưa nhập bất kỳ tiết nào hợp lệ.');
-        }
-        return slots;
-      }
+      function renderScheduleQueue() {
+        scheduleQueueElement.replaceChildren();
+        scheduleQueueElement.classList.toggle('open', pendingScheduleEntries.length > 0);
+        if (!pendingScheduleEntries.length) return;
 
-      bulkEditor.addEventListener('submit', async (event) => {
-        event.preventDefault();
-        try {
-          const slots = parseBulkScheduleInput(document.getElementById('bulk-schedule-input').value);
-          const response = await fetch('/api/schedule/slots', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ slots: slots.map((slot) => ({ ...slot, username: user.username })) }),
+        const title = document.createElement('strong');
+        title.textContent = `Danh sách chờ lưu (${pendingScheduleEntries.length})`;
+        scheduleQueueElement.appendChild(title);
+        pendingScheduleEntries.forEach((entry, index) => {
+          const row = document.createElement('div');
+          row.className = 'schedule-queue-item';
+          const description = document.createElement('span');
+          const periodLabel = entry.duration === 2
+            ? `Tiết ${entry.period}-${entry.period + 1} · tiết đôi`
+            : `Tiết ${entry.period} · tiết đơn`;
+          description.textContent = `${entry.session === 'morning' ? 'Sáng' : 'Chiều'}, thứ ${entry.day}, ${periodLabel}: ${entry.subject}${entry.lecturer ? ` · ${entry.lecturer}` : ''}`;
+          const removeButton = document.createElement('button');
+          removeButton.type = 'button';
+          removeButton.textContent = 'Bỏ';
+          removeButton.setAttribute('aria-label', `Bỏ ${entry.subject} khỏi danh sách chờ`);
+          removeButton.addEventListener('click', () => {
+            pendingScheduleEntries.splice(index, 1);
+            renderScheduleQueue();
           });
-          const result = await response.json();
-          if (!response.ok) {
-            showWebToast('Không thể lưu nhiều tiết', result.detail || 'Vui lòng kiểm tra định dạng dữ liệu.');
-            return;
-          }
-          setBulkScheduleEditor(false);
-          event.target.reset();
-          showWebToast(result.notification?.title || 'Đã lưu nhiều tiết', result.notification?.message || result.message);
-          await loadDashboard();
-          showView('schedule');
-        } catch (error) {
-          showWebToast('Dữ liệu không hợp lệ', error.message || 'Vui lòng kiểm tra định dạng dòng nhập.');
-        }
-      });
+          row.append(description, removeButton);
+          scheduleQueueElement.appendChild(row);
+        });
+      }
 
       editor.addEventListener('submit', async (event) => {
         event.preventDefault();
-        const payload = {
+        const entry = {
           session: document.getElementById('editor-session').value,
           day: document.getElementById('editor-day').value,
           period: Number(document.getElementById('editor-period').value),
+          duration: Number(document.getElementById('editor-duration').value),
           subject: document.getElementById('editor-subject').value.trim(),
           lecturer: document.getElementById('editor-lecturer').value.trim(),
-          username: user.username,
         };
-        const response = await fetch('/api/schedule/slot', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-        const result = await response.json();
-        if (!response.ok) { showWebToast('Không thể cập nhật lịch', result.detail || 'Vui lòng thử lại.'); return; }
-        const nextSchedule = Array.isArray(assignmentsData) ? readStudentPersistedState().schedule : readStudentPersistedState().schedule;
-        saveStudentPersistedState({
-          schedule: [...readStudentPersistedState().schedule, { ...payload, id: `${payload.session}-${payload.day}-${payload.period}` }],
-          assignments: assignmentsData,
+        if (entry.duration === 2 && entry.period === 5) {
+          showWebToast('Không thể thêm tiết đôi', 'Tiết đôi cần một tiết kế tiếp; hãy chọn tiết bắt đầu từ 1 đến 4.');
+          return;
+        }
+        const occupiedPeriods = new Set(
+          Array.from({ length: entry.duration }, (_, offset) => entry.period + offset)
+        );
+        for (let index = pendingScheduleEntries.length - 1; index >= 0; index -= 1) {
+          const queued = pendingScheduleEntries[index];
+          if (queued.session !== entry.session || queued.day !== entry.day) continue;
+          const queuedPeriods = Array.from({ length: queued.duration }, (_, offset) => queued.period + offset);
+          if (queuedPeriods.some((period) => occupiedPeriods.has(period))) {
+            pendingScheduleEntries.splice(index, 1);
+          }
+        }
+        pendingScheduleEntries.push(entry);
+        renderScheduleQueue();
+        document.getElementById('editor-subject').value = '';
+        document.getElementById('editor-lecturer').value = '';
+        document.getElementById('editor-duration').value = '1';
+        const nextPeriod = entry.period + entry.duration;
+        if (nextPeriod <= 5) document.getElementById('editor-period').value = String(nextPeriod);
+        document.getElementById('editor-subject').focus();
+      });
+
+      document.getElementById('save-schedule-queue').addEventListener('click', async () => {
+        if (!pendingScheduleEntries.length) {
+          showWebToast('Chưa có tiết chờ lưu', 'Hãy thêm ít nhất một tiết vào danh sách trước.');
+          return;
+        }
+        const slots = pendingScheduleEntries.flatMap((entry) =>
+          Array.from({ length: entry.duration }, (_, offset) => ({
+            session: entry.session,
+            day: entry.day,
+            period: entry.period + offset,
+            subject: entry.subject,
+            lecturer: entry.lecturer,
+            username: user.username,
+          }))
+        );
+        const response = await fetch('/api/schedule/slots', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slots }),
         });
-        showWebToast(result.notification?.title || 'Đã cập nhật thời khóa biểu', result.notification?.message || result.message);
-        setScheduleEditor(false);
+        const result = await response.json();
+        if (!response.ok) {
+          showWebToast('Không thể lưu thời khóa biểu', result.detail || 'Vui lòng thử lại.');
+          return;
+        }
+        pendingScheduleEntries.length = 0;
+        renderScheduleQueue();
+        showWebToast(result.notification?.title || 'Đã lưu thời khóa biểu', result.notification?.message || result.message);
         await loadDashboard();
         showView('schedule');
       });
@@ -801,6 +821,7 @@
         document.getElementById('editor-session').value = session;
         document.getElementById('editor-day').value = day;
         document.getElementById('editor-period').value = period;
+        document.getElementById('editor-duration').value = '1';
         document.getElementById('editor-subject').value = lesson?.subject || '';
         document.getElementById('editor-lecturer').value = lesson?.lecturer || '';
         setScheduleEditor(true);
