@@ -101,6 +101,7 @@
     </div>
     <section class="panel" style="margin-top:20px"><h2>Hòm thư báo lỗi và góp ý <span id="unread-count"></span></h2><div id="report-inbox"></div></section>
   </main>
+  <script src="/static/confirm.js"></script>
   <script>
     const tokenKey = 'study_sync_owner_token';
     let ownerToken = sessionStorage.getItem(tokenKey) || '';
@@ -183,17 +184,19 @@
     }
 
     async function editUser(user) {
-      const fullName = prompt('Họ tên:', user.full_name);
-      if (fullName === null) return;
-      const className = prompt('Lớp (có thể để trống):', user.class_name || '');
-      if (className === null) return;
+      const fullName = await window.studySyncConfirm.prompt(`Nhập họ tên mới cho @${user.username}:`, 'Sửa thông tin tài khoản', { input: 'Họ và tên', initialValue: user.full_name || '' });
+      if (fullName === false) return;
+      const className = await window.studySyncConfirm.prompt('Nhập lớp mới (để trống nếu không có):', 'Sửa thông tin tài khoản', { input: 'Lớp', initialValue: user.class_name || '' });
+      if (className === false) return;
+      if (!(await window.studySyncConfirm.confirm(`Cập nhật thông tin cho @${user.username}?\nHọ tên: ${fullName}\nLớp: ${className || '(trống)'}`, 'Xác nhận cập nhật', { okText: 'Cập nhật' }))) return;
       try {
         await ownerRequest(`/api/owner/users/${encodeURIComponent(user.id)}`, {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ full_name: fullName, class_name: className }),
         });
         await loadOwnerDashboard();
-      } catch (error) { alert(error.message); }
+        window.studySyncConfirm.alert(`Đã cập nhật thông tin của @${user.username}.`, 'Thành công');
+      } catch (error) { window.studySyncConfirm.alert(error.message, 'Không thành công'); }
     }
 
     function renderReports(reports) {
@@ -212,13 +215,17 @@
         button.className = 'secondary';
         button.textContent = report.read ? 'Đánh dấu chưa đọc' : 'Đánh dấu đã đọc';
         button.onclick = async () => {
+          const nextRead = !report.read;
+          const verb = nextRead ? 'đánh dấu đã đọc' : 'đánh dấu chưa đọc';
+          if (!(await window.studySyncConfirm.confirm(`Bạn muốn ${verb} báo cáo này của @${report.username}?`, 'Xác nhận', { okText: nextRead ? 'Đánh dấu đã đọc' : 'Đánh dấu chưa đọc' }))) return;
           try {
             await ownerRequest(`/api/owner/reports/${encodeURIComponent(report.id)}`, {
               method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ read: !report.read }),
+              body: JSON.stringify({ read: nextRead }),
             });
             await loadOwnerDashboard();
-          } catch (error) { alert(error.message); }
+            window.studySyncConfirm.alert(`Đã ${verb} báo cáo.`, 'Thành công');
+          } catch (error) { window.studySyncConfirm.alert(error.message, 'Không thành công'); }
         };
         row.append(heading, message, button);
         inbox.appendChild(row);
@@ -227,7 +234,7 @@
 
     async function setUserActive(user, isActive) {
       const verb = isActive ? 'mở khóa' : 'khóa';
-      if (!confirm(`Bạn muốn ${verb} tài khoản @${user.username}?`)) return;
+      if (!(await window.studySyncConfirm.confirm(`Bạn muốn ${verb} tài khoản @${user.username}?`, 'Xác nhận', { okText: verb === 'mở khóa' ? 'Mở khóa' : 'Khóa', danger: !isActive }))) return;
       try {
         await ownerRequest(`/api/owner/users/${encodeURIComponent(user.id)}/status`, {
           method: 'PATCH',
@@ -235,8 +242,9 @@
           body: JSON.stringify({ is_active: isActive }),
         });
         await loadOwnerDashboard();
+        window.studySyncConfirm.alert(`Đã ${verb} tài khoản @${user.username}.`, 'Thành công');
       } catch (error) {
-        alert(error.message);
+        window.studySyncConfirm.alert(error.message, 'Không thành công');
       }
     }
 

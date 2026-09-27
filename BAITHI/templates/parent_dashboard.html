@@ -248,6 +248,7 @@
       </section>
     </main>
 
+    <script src="/static/confirm.js"></script>
     <script>
       const user = JSON.parse(localStorage.getItem('study_sync_user') || 'null');
       const sessionToken = localStorage.getItem('study_sync_session_token') || '';
@@ -353,27 +354,31 @@
       document.getElementById('link-form').addEventListener('submit', async (event) => {
         event.preventDefault();
         const message = document.getElementById('management-message');
-        const response = await fetch('/api/parent/link-student', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` }, body: JSON.stringify({ parent_username: user.username, student_id: document.getElementById('student-code').value.trim() }) });
+      const linkCode = document.getElementById('student-code').value.trim();
+      if (!(await window.studySyncConfirm.confirm(`Liên kết học sinh với mã: ${linkCode}`, 'Xác nhận liên kết', { okText: 'Liên kết' }))) { message.textContent = 'Đã hủy liên kết.'; return; }
+        const response = await fetch('/api/parent/link-student', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` }, body: JSON.stringify({ parent_username: user.username, student_id: linkCode }) });
         const result = await response.json();
         message.textContent = result.message || result.detail || 'Đã xử lý.';
-        if (response.ok) { event.target.reset(); await loadDashboard(); }
+        if (response.ok) { event.target.reset(); await loadDashboard(); window.studySyncConfirm.alert(result.message || 'Đã liên kết học sinh.', 'Thành công'); }
       });
 
       document.getElementById('cancel-profile').addEventListener('click', () => document.getElementById('profile-form').classList.remove('open'));
       document.getElementById('profile-form').addEventListener('submit', async (event) => {
         event.preventDefault();
-        const response = await fetch('/api/parent/student', { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` }, body: JSON.stringify({
+        const profilePayload = {
           parent_username: user.username,
           student_id: document.getElementById('profile-student-id').value,
           full_name: document.getElementById('profile-name').value.trim(),
           class_name: document.getElementById('profile-class').value.trim(),
           avatar: document.getElementById('profile-avatar').value.trim(),
           is_active: document.getElementById('profile-active').value === 'true',
-        }) });
+        };
+        if (!(await window.studySyncConfirm.confirm(`Cập nhật thông tin học sinh ${profilePayload.student_id}?\nHọ tên: ${profilePayload.full_name}\nLớp: ${profilePayload.class_name || '(trống)'}\nTrạng thái: ${profilePayload.is_active ? 'Đang học' : 'Tạm khóa'}`, 'Xác nhận cập nhật', { okText: 'Cập nhật' }))) { document.getElementById('management-message').textContent = 'Đã hủy cập nhật.'; return; }
+        const response = await fetch('/api/parent/student', { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` }, body: JSON.stringify(profilePayload) });
         const result = await response.json();
         const message = document.getElementById('management-message');
         message.textContent = result.message || result.detail || 'Đã xử lý.';
-        if (response.ok) { event.target.classList.remove('open'); await loadDashboard(); }
+        if (response.ok) { event.target.classList.remove('open'); await loadDashboard(); window.studySyncConfirm.alert(result.message || 'Đã cập nhật thông tin học sinh.', 'Thành công'); }
       });
 
       function renderTasks(tasks) {
@@ -425,6 +430,7 @@
         const password = document.getElementById('security-password').value;
         const pin = document.getElementById('security-pin').value;
         if (pin !== document.getElementById('security-pin-confirm').value) { message.textContent = 'Hai mã PIN không khớp.'; return; }
+        if (!(await window.studySyncConfirm.confirm('Lưu mã PIN đăng nhập và bật đăng nhập bằng PIN?', 'Xác nhận lưu PIN', { okText: 'Lưu PIN' }))) { message.textContent = 'Đã hủy lưu PIN.'; return; }
         const response = await fetch('/api/security/pin', {
           method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` },
           body: JSON.stringify({ username: user.username, password, pin }),
@@ -436,6 +442,7 @@
           user.pin_login_enabled = true;
           document.getElementById('pin-login-enabled').checked = true;
           localStorage.setItem('study_sync_user', JSON.stringify(user));
+          window.studySyncConfirm.alert(result.message || 'Đã lưu mã PIN.', 'Thành công');
         }
       });
 
@@ -450,6 +457,8 @@
       document.getElementById('pin-login-setting-form').addEventListener('submit', async (event) => {
         event.preventDefault();
         const message = document.getElementById('pin-login-setting-message');
+        const enableMode = pinLoginCheckbox.checked;
+        if (!(await window.studySyncConfirm.confirm(enableMode ? 'Bật đăng nhập bằng mã PIN cho tài khoản này?' : 'Tắt đăng nhập bằng mã PIN cho tài khoản này?', 'Xác nhận cập nhật bảo mật', { okText: 'Cập nhật', danger: !enableMode }))) { message.textContent = 'Đã hủy cập nhật bảo mật.'; return; }
         const response = await fetch('/api/security/pin-login', {
           method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` },
           body: JSON.stringify({
@@ -468,6 +477,7 @@
           pinLoginCheckbox.checked = result.enabled;
           pinCurrentWrap.hidden = result.enabled;
           pinCurrentInput.required = !result.enabled;
+          window.studySyncConfirm.alert(result.message || 'Đã cập nhật cài đặt bảo mật.', 'Thành công');
         }
       });
 
