@@ -56,7 +56,16 @@ class StudyRepository:
         return int(row[0])
 
     def _rows_to_dicts(self, rows: list[Any]) -> list[dict[str, Any]]:
-        return [dict(row) if not isinstance(row, dict) else row for row in rows]
+        """psycopg3 tra ve dict; sqlite3 tra ve sqlite3.Row."""
+        result = []
+        for row in rows:
+            if isinstance(row, dict):
+                result.append(row)
+            elif isinstance(row, sqlite3.Row):
+                result.append(dict(row))
+            else:
+                result.append(dict(row))
+        return result
 
     def _init_db(self) -> None:
         with self._lock, self._connect() as conn:
@@ -189,18 +198,34 @@ class StudyRepository:
         statement = f"INSERT OR REPLACE INTO assignments ({columns}) VALUES ({placeholders})"
         conn.execute(statement, item)
 
+    def _to_sqlite_style(self, sql: str, params: dict[str, Any]) -> tuple[str, list[Any]]:
+        """Doi tham so dang ten (:ten) sang tham so vi tri (%s) cho Postgres."""
+        statement = sql
+        values: list[Any] = []
+        for name, value in params.items():
+            statement = statement.replace(f":{name}", "%s")
+            values.append(value)
+        return statement, values
+
     def _query(self, conn, sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
-        """Chay truy van voi tham so dang ten, doc duoc tren ca SQLite va Postgres."""
+        """Chay truy van tra ve duoc hang, doc duoc tren ca SQLite va Postgres."""
         if is_postgres():
-            values = list(params.values())
-            statement = sql
-            for name, value in params.items():
-                statement = statement.replace(f":{name}", "%s")
-                _ = value
+            statement, values = self._to_sqlite_style(sql, params)
             cursor = conn.execute(statement, values)
+            if cursor.description is None:
+                return []
             return self._rows_to_dicts(cursor.fetchall())
         cursor = conn.execute(sql, params)
         return [dict(row) for row in cursor.fetchall()]
+
+    def _run(self, conn, sql: str, params: dict[str, Any]) -> int:
+        """Chay lenh INSERT/UPDATE/DELETE, tra ve so dong bi anh huong."""
+        if is_postgres():
+            statement, values = self._to_sqlite_style(sql, params)
+            cursor = conn.execute(statement, values)
+            return cursor.rowcount
+        cursor = conn.execute(sql, params)
+        return cursor.rowcount
 
     def _migrate_json_file_if_needed(self) -> None:
         with self._lock, self._connect() as conn:
@@ -329,7 +354,7 @@ class StudyRepository:
                 )
                 if existing:
                     row = existing[0]
-                    self._query(
+                    self._run(
                         conn,
                         "UPDATE schedule SET subject=:subject, lecturer=:lecturer WHERE id=:id",
                         {"subject": subject, "lecturer": lecturer, "id": row["id"]},

@@ -69,8 +69,10 @@ def test_file_backend_reports_corrupted_document(tmp_path, monkeypatch):
 
 
 class FakeCursor:
-    def __init__(self, rows):
+    def __init__(self, rows, description=None):
         self._rows = rows
+        # psycopg tra ve None khi lenh khong tra ve hang (INSERT/UPDATE/DELETE).
+        self.description = description if description is not None else [("col",)]
 
     def fetchall(self):
         return self._rows

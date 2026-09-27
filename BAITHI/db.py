@@ -47,7 +47,15 @@ def _init_pool() -> Any:
         if _POOL is None:
             from psycopg_pool import ConnectionPool
 
-            _POOL = ConnectionPool(DATABASE_URL, min_size=1, max_size=5, open=True)
+            from psycopg.rows import dict_row
+
+            _POOL = ConnectionPool(
+                DATABASE_URL,
+                min_size=1,
+                max_size=5,
+                kwargs={"row_factory": dict_row},
+                open=True,
+            )
             with _POOL.connection() as conn:
                 conn.execute(
                     """
@@ -84,7 +92,6 @@ def _postgres_load(key: str) -> Any:
     if isinstance(row, dict):
         return row.get("payload")
     return row[0]
-
 
 def _postgres_save(key: str, value: Any) -> None:
     pool = _init_pool()
