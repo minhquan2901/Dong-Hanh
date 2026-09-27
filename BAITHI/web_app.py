@@ -43,6 +43,7 @@ from owner_auth import (
 )
 from owner_service import get_owner_overview, list_managed_users, managed_user_by_id, record_successful_feature_use, set_managed_user_active
 from data_storage import account_data_status
+from db import storage_status
 from feedback_service import create_report, list_reports, mark_report_read
 
 ROOT = Path(__file__).resolve().parent
@@ -332,6 +333,7 @@ def health_data() -> dict[str, object]:
     status = account_data_status()
     return {
         "status": "ok",
+        "backend": storage_status()["backend"],
         "data_dir": status["data_dir"],
         "persistent_dir": status["using_persistent_dir"],
         "user_count": status["user_count"],

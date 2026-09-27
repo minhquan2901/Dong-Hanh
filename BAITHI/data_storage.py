@@ -145,6 +145,23 @@ def account_data_status() -> dict[str, Any]:
         "user_count": 0,
         "has_session_secret": False,
     }
+
+    # Khi da tro sang Postgres, du lieu nam trong database chu khong phai file.
+    try:
+        from db import is_postgres, load_document, storage_status
+
+        if is_postgres():
+            users = load_document("users", {"users": []}, "tai khoan")
+            report["backend"] = storage_status()["backend"]
+            report["user_count"] = len(users.get("users", [])) if isinstance(users, dict) else 0
+            report["has_session_secret"] = bool(
+                os.environ.get("STUDYSYNC_SESSION_SECRET", "").strip()
+                or (DATA_DIR / "session_signing_secret.json").is_file()
+            )
+            return report
+    except Exception:  # pragma: no cover - neu database loi thi bao loi file
+        pass
+
     for filename in CRITICAL_FILES:
         path = DATA_DIR / filename
         entry: dict[str, Any] = {"exists": path.is_file(), "backups": len(list_backups(filename))}

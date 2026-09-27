@@ -84,37 +84,67 @@ Sau khi bật push trên máy tính, trình duyệt đăng ký service worker v�
 
 ### Giữ tài khoản và dữ liệu sau deploy/restart
 
-Ứng dụng lưu tài khoản trong `users.json`, yêu cầu liên kết trong `link_requests.json`, cùng các dữ liệu ứng dụng trong cùng một thư mục. Mặc định thư mục là `BAITHI/data`; có thể đổi bằng biến môi trường `STUDYSYNC_DATA_DIR`.
+Render gói **Free** không có persistent disk: mỗi lần deploy là một instance mới, mọi file ghi trong thư mục mã nguồn đều bị mất. Nếu để tài khoản trong `BAITHI/data/users.json` thì mỗi lần deploy tài khoản sẽ mất sạch.
 
-Để dữ liệu không mất khi Render deploy lại hoặc thay instance:
+Giải pháp là lưu dữ liệu vào **Neon Postgres** (gói free, 0.5 GB, không cần thẻ tín dụng). Ứng dụng chọn nguồn lưu trữ theo biến môi trường `STUDYSYNC_DATABASE_URL`:
 
-1. Nâng gói lên **Starter trở lên** (Persistent Disk không có trên Free).
-2. Gắn Render Persistent Disk vào service, mount tại `/var/data`. Disk **phải cùng region** với service.
-3. Đặt biến môi trường `STUDYSYNC_DATA_DIR=/var/data/studysync` và `STUDYSYNC_SESSION_SECRET` (chuỗi ngẫu nhiên ≥32 ký tự, đặt cố định).
-4. Lần đầu tiên có disk: copy dữ liệu cũ vào `/var/data/studysync` **trước khi deploy bản mới**.
+- Có biến này → đọc/ghi trên Postgres.
+- Không có → dùng file JSON như cũ, để chạy local và chạy test.
 
-File `render.yaml` ở thư mục gốc khai báo sẵn disk, biến môi trường và start command. Có thể dùng Render Blueprint để tạo service, hoặc chỉ lấy cấu hình trong đó để làm tay.
+Nhờ vậy cùng một mã nguồn chạy được cả hai nơi mà không cần đổi cấu hình.
 
-**Bước 4 là bước dễ sót nhất.** Cơ chế di trú chỉ chạy một lần và chỉ khi thư mục đích chưa có file. Nếu deploy trước rồi mới copy, `users.json` đã được tạo rỗng và sẽ không bao giờ bị ghi đè lại. Cách làm đúng là copy qua Render Shell hoặc `scp` trước khi deploy. Sau lần này thì mọi lần deploy chỉ thay code, không đụng vào disk.
+#### 1. Tạo database trên Neon
 
-Kiểm tra dữ liệu còn nguyên không bằng cách mở `/health/data`, trả về số tài khoản, thư mục dữ liệu đang dùng và trạng thái khóa phiên đăng nhập. Nếu `user_count` bỗng về 0 sau một lần deploy nghĩa là dữ liệu chưa nằm trên disk.
+1. Đăng ký tài khoản miễn phí tại [neon.com](https://neon.com).
+2. Tạo project, chọn region gần Render nhất, chọn gói Free.
+3. Neon tự tạo database `neondb` và schema `public`.
 
-### Sao lưu tự động và khôi phục
+#### 2. Lấy chuỗi kết nối
 
-Mỗi lần ghi `users.json`, `link_requests.json` hoặc `session_signing_secret.json`, ứng dụng giữ lại bản sao trong `<STUDYSYNC_DATA_DIR>/backups/`, tối đa 20 bản gần nhất (đổi bằng `STUDYSYNC_BACKUP_KEEP`). File JSON hỏng không được sao lưu và bản sao hỏng bị bỏ qua khi khôi phục.
+Vào **Connection Details** trong Neon Console, chọn driver **Python**, sao chép chuỗi kết nối. Nó có dạng:
 
-Khôi phục từ Render Shell:
-
-```bash
-cd /var/data/studysync
-cp users.json users.json.hong              # giữ lại bản hỏng để đối chiếu
-ls -t backups/users.json.*.bak.json | head  # xem các bản sao gần nhất
-cp "$(ls -t backups/users.json.*.bak.json | head -1)" users.json
+```
+postgresql://ten_user:mat_khau@ep-xxx-pooler.region.aws.neon.tech/neondb?sslmode=require
 ```
 
-Khôi phục được là cứu được tài khoản, nhưng các phiên đăng nhập đang mở vẫn có thể hết hạn nếu `session_signing_secret.json` cũng bị thay. Nếu khôi phục cả file này từ backup thì phiên cũ chạy lại được.
+Đặt chuỗi này vào biến môi trường `STUDYSYNC_DATABASE_URL` trên Render.
 
-Khi thư mục persistent mới chưa có một file nhưng file cũ còn trong `BAITHI/data`, ứng dụng sẽ di trú file đó một lần và không ghi đè file đã có trên disk. Nếu hosting đã xóa filesystem cũ trước khi sao lưu, ứng dụng không thể khôi phục dữ liệu đã mất. Tệp JSON lỗi sẽ báo lỗi thay vì bị coi là danh sách rỗng. Đăng xuất không xóa tài khoản. Persistent disk bảo vệ qua deploy/restart; nếu xóa disk hoặc reset/xóa dữ liệu trực tiếp trên disk thì dữ liệu không thể tự khôi phục.
+#### 3. Chuyển dữ liệu cũ lên Neon
+
+Chạy **một lần duy nhất**, trước khi deploy bản dùng database:
+
+```powershell
+$env:STUDYSYNC_DATABASE_URL = "postgresql://...sslmode=require"
+.\.venv\Scripts\python.exe migrate_to_postgres.py
+```
+
+Script tạo bảng nếu chưa có, rồi tải lên tài khoản, yêu cầu liên kết, hòm thư góp ý, thống kê sử dụng, thời khóa biểu và bài tập. Script **không ghi đè** dữ liệu đang có trên Neon, nên chạy lại cũng an toàn.
+
+#### 4. Cấu hình Render
+
+Trong Render Dashboard → service → **Settings → Environment**, thêm:
+
+```
+STUDYSYNC_DATABASE_URL      = <chuỗi kết nối Neon>
+STUDYSYNC_SESSION_SECRET    = <chuỗi ngẫu nhiên từ 32 ký tự trở lên>
+STUDYSYNC_OWNER_SECRET      = <chuỗi ngẫu nhiên từ 32 ký tự trở lên>
+OWNER_USERNAME              = <tên đăng nhập quản trị>
+OWNER_PASSWORD              = <mật khẩu quản trị>
+```
+
+`STUDYSYNC_SESSION_SECRET` phải cố định. Nếu để ứng dụng tự sinh khóa ở `session_signing_secret.json` trong thư mục dữ liệu, thì trên gói Free khóa đó mất sau mỗi lần deploy và mọi phiên đăng nhập đang mở đều bị đăng xuất.
+
+#### 5. Kiểm tra sau khi deploy
+
+Mở `/health/data`. Kết quả đúng sẽ có:
+
+```json
+{"backend": "postgres", "user_count": 12, "has_session_secret": true}
+```
+
+Nếu `backend` vẫn là `file` hoặc `user_count` bằng 0 thì `STUDYSYNC_DATABASE_URL` chưa được đặt đúng, hoặc script migrate chưa chạy.
+
+Tệp JSON lỗi vẫn báo lỗi thay vì bị coi là danh sách rỗng, và đăng xuất không xóa tài khoản.
 
 ### Tài khoản quản trị owner
 
@@ -124,7 +154,7 @@ Owner đăng nhập tại `/owner`, không tạo qua form đăng ký và không 
 - `OWNER_PASSWORD`: mật khẩu mạnh, tối thiểu 12 ký tự.
 - `STUDYSYNC_SESSION_SECRET`: chuỗi ngẫu nhiên tối thiểu 32 ký tự dùng ký token phiên user và owner.
 
-Nếu chưa có biến `STUDYSYNC_SESSION_SECRET`, ứng dụng tạo khóa ở `session_signing_secret.json` trong thư mục dữ liệu. Vì vậy cần cấu hình Persistent Disk và `STUDYSYNC_DATA_DIR` trước khi dùng owner trên hosting. Owner có thể xem thống kê thao tác tính năng thành công và quản lý trạng thái tài khoản; danh sách không trả về mật khẩu.
+Nếu chưa có biến `STUDYSYNC_SESSION_SECRET`, ứng dụng tạo khóa ở `session_signing_secret.json` trong thư mục dữ liệu. Vì vậy cần đặt biến này khi chạy trên Render, nếu không mọi lần deploy sẽ sinh khóa mới và đăng xuất toàn bộ người dùng. Owner có thể xem thống kê thao tác tính năng thành công và quản lý trạng thái tài khoản; danh sách không trả về mật khẩu.
 
 Render tự động deploy lại mỗi khi có commit mới đẩy lên branch đang nối với service. Không cần cấu hình gì thêm trong code. Quy trình thực tế:
 

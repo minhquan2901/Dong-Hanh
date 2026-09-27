@@ -1,25 +1,23 @@
 # Persistent inbox for user bug reports and feedback."
 from __future__ import annotations
-import json
 from datetime import datetime, timezone
 from threading import RLock
 from uuid import uuid4
-from data_storage import data_file, write_json_atomic
+
+from data_storage import data_file
+from db import load_document, save_document
+
 INBOX_FILE = data_file("feedback_inbox.json")
 INBOX_LOCK = RLock()
 
 
 def list_reports() -> list[dict]:
     with INBOX_LOCK:
-        if not INBOX_FILE.exists():
-            return []
-        try:
-            items = json.loads(INBOX_FILE.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise RuntimeError("Không đọc được hòm thư góp ý.") from exc
+        items = load_document("feedback_inbox", [], "hòm thư góp ý")
         if not isinstance(items, list):
             raise RuntimeError("Dữ liệu hòm thư không hợp lệ.")
         return items
+
 
 def create_report(username: str, category: str, message: str) -> dict:
     if category not in {"bug", "feedback"}:
@@ -35,8 +33,9 @@ def create_report(username: str, category: str, message: str) -> dict:
             "read": False,
         }
         items.append(report)
-        write_json_atomic(INBOX_FILE, items)
+        save_document("feedback_inbox", items)
         return report
+
 
 def mark_report_read(report_id: str, read: bool) -> bool:
     with INBOX_LOCK:
@@ -44,6 +43,6 @@ def mark_report_read(report_id: str, read: bool) -> bool:
         for item in items:
             if item.get("id") == report_id:
                 item["read"] = read
-                write_json_atomic(INBOX_FILE, items)
+                save_document("feedback_inbox", items)
                 return True
         return False

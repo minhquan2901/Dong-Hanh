@@ -3,16 +3,22 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from data_storage import data_file
+from db import is_postgres
 from uuid import uuid4
 
 
 class StudyRepository:
-    """Lưu thời khóa biểu và bài tập trong SQLite, với fallback về JSON cho tương thích."""
+    """Lưu thời khóa biểu và bài tập.
+
+    Dùng SQLite khi chạy local/test, dùng bảng riêng trong Postgres khi deploy.
+    Cả hai đều giữ cùng tên cột nên các hàm bên dưới không cần đổi.
+    """
 
     def __init__(
         self,
@@ -21,18 +27,79 @@ class StudyRepository:
     ) -> None:
         self.file_path = Path(file_path) if file_path is not None else data_file("study_data.json")
         self.db_path = Path(db_path) if db_path is not None else data_file("studysync.db")
-        self.file_path.parent.mkdir(parents=True, exist_ok=True)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.RLock()
+        if not is_postgres():
+            self.file_path.parent.mkdir(parents=True, exist_ok=True)
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
         self._migrate_json_file_if_needed()
 
-    def _connect(self) -> sqlite3.Connection:
+    # --- Kết nối ---------------------------------------------------------
+    def _postgres_connection(self):
+        from db import _init_pool
+
+        return _init_pool().connection()
+
+    def _connect(self):
+        if is_postgres():
+            return self._postgres_connection()
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         return conn
 
+    def _count(self, conn, table: str) -> int:
+        row = conn.execute(f"SELECT COUNT(*) AS total FROM {table}").fetchone()
+        if row is None:
+            return 0
+        if isinstance(row, dict):
+            return int(row.get("total", 0))
+        return int(row[0])
+
+    def _rows_to_dicts(self, rows: list[Any]) -> list[dict[str, Any]]:
+        return [dict(row) if not isinstance(row, dict) else row for row in rows]
+
     def _init_db(self) -> None:
-        with self._connect() as conn:
+        with self._lock, self._connect() as conn:
+            if is_postgres():
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS schedule (
+                        id TEXT PRIMARY KEY,
+                        owner_username TEXT NOT NULL DEFAULT '',
+                        session TEXT,
+                        day TEXT,
+                        period INTEGER,
+                        subject TEXT,
+                        lecturer TEXT,
+                        reminder_minutes INTEGER DEFAULT 30,
+                        start TEXT DEFAULT '',
+                        room TEXT DEFAULT ''
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS assignments (
+                        id TEXT PRIMARY KEY,
+                        owner_username TEXT NOT NULL DEFAULT '',
+                        title TEXT,
+                        subject TEXT,
+                        due_date TEXT,
+                        priority TEXT,
+                        completed INTEGER DEFAULT 0
+                    )
+                    """
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS schedule_owner_slot_idx "
+                    "ON schedule(owner_username, session, day, period)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS assignments_owner_due_idx "
+                    "ON assignments(owner_username, due_date)"
+                )
+                conn.commit()
+                return
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS schedule (
@@ -89,10 +156,56 @@ class StudyRepository:
                     (legacy_owner,),
                 )
 
+    def _insert_schedule_row(self, conn, item: dict[str, Any]) -> None:
+        columns = "id, owner_username, session, day, period, subject, lecturer, reminder_minutes, start, room"
+        if is_postgres():
+            values = [item["id"], item["owner_username"], item["session"], item["day"], item["period"], item["subject"], item["lecturer"], item["reminder_minutes"], item["start"], item["room"]]
+            placeholders = ", ".join(["%s"] * 10)
+            statement = (
+                f"INSERT INTO schedule ({columns}) VALUES ({placeholders}) "
+                "ON CONFLICT (id) DO UPDATE SET subject=EXCLUDED.subject, "
+                "lecturer=EXCLUDED.lecturer, owner_username=EXCLUDED.owner_username"
+            )
+            conn.execute(statement, values)
+            return
+        placeholders = ":" + ", :".join(columns.replace(" ", "").split(","))
+        statement = f"INSERT OR REPLACE INTO schedule ({columns}) VALUES ({placeholders})"
+        conn.execute(statement, item)
+
+    def _insert_assignment_row(self, conn, item: dict[str, Any]) -> None:
+        columns = "id, owner_username, title, subject, due_date, priority, completed"
+        if is_postgres():
+            values = [item["id"], item["owner_username"], item["title"], item["subject"], item["due_date"], item["priority"], item["completed"]]
+            placeholders = ", ".join(["%s"] * 7)
+            statement = (
+                f"INSERT INTO assignments ({columns}) VALUES ({placeholders}) "
+                "ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, "
+                "subject=EXCLUDED.subject, due_date=EXCLUDED.due_date, "
+                "priority=EXCLUDED.priority, completed=EXCLUDED.completed"
+            )
+            conn.execute(statement, values)
+            return
+        placeholders = ":" + ", :".join(columns.replace(" ", "").split(","))
+        statement = f"INSERT OR REPLACE INTO assignments ({columns}) VALUES ({placeholders})"
+        conn.execute(statement, item)
+
+    def _query(self, conn, sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+        """Chay truy van voi tham so dang ten, doc duoc tren ca SQLite va Postgres."""
+        if is_postgres():
+            values = list(params.values())
+            statement = sql
+            for name, value in params.items():
+                statement = statement.replace(f":{name}", "%s")
+                _ = value
+            cursor = conn.execute(statement, values)
+            return self._rows_to_dicts(cursor.fetchall())
+        cursor = conn.execute(sql, params)
+        return [dict(row) for row in cursor.fetchall()]
+
     def _migrate_json_file_if_needed(self) -> None:
-        with self._connect() as conn:
-            schedule_count = conn.execute("SELECT COUNT(*) FROM schedule").fetchone()[0]
-            assignment_count = conn.execute("SELECT COUNT(*) FROM assignments").fetchone()[0]
+        with self._lock, self._connect() as conn:
+            schedule_count = self._count(conn, "schedule")
+            assignment_count = self._count(conn, "assignments")
             if schedule_count or assignment_count:
                 return
             if not self.file_path.exists():
@@ -104,44 +217,32 @@ class StudyRepository:
             if not isinstance(data, dict):
                 return
             for item in data.get("schedule", []):
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO schedule (id, owner_username, session, day, period, subject, lecturer, reminder_minutes, start, room)
-                    VALUES (:id, :owner_username, :session, :day, :period, :subject, :lecturer, :reminder_minutes, :start, :room)
-                    """,
-                    {
-                        "id": item.get("id") or datetime.now().strftime("lesson-%Y%m%d%H%M%S%f"),
-                        "owner_username": str(
-                            item.get("owner_username") or os.environ.get("LEGACY_STUDY_OWNER_USERNAME", "")
-                        ).strip().lower(),
-                        "session": item.get("session", "morning"),
-                        "day": str(item.get("day", "2")),
-                        "period": int(item.get("period", 1)),
-                        "subject": item.get("subject", ""),
-                        "lecturer": item.get("lecturer", ""),
-                        "reminder_minutes": int(item.get("reminder_minutes", 30)),
-                        "start": item.get("start", ""),
-                        "room": item.get("room", ""),
-                    },
-                )
+                self._insert_schedule_row(conn, {
+                    "id": item.get("id") or datetime.now().strftime("lesson-%Y%m%d%H%M%S%f"),
+                    "owner_username": str(
+                        item.get("owner_username") or os.environ.get("LEGACY_STUDY_OWNER_USERNAME", "")
+                    ).strip().lower(),
+                    "session": item.get("session", "morning"),
+                    "day": str(item.get("day", "2")),
+                    "period": int(item.get("period", 1)),
+                    "subject": item.get("subject", ""),
+                    "lecturer": item.get("lecturer", ""),
+                    "reminder_minutes": int(item.get("reminder_minutes", 30)),
+                    "start": item.get("start", ""),
+                    "room": item.get("room", ""),
+                })
             for item in data.get("assignments", []):
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO assignments (id, owner_username, title, subject, due_date, priority, completed)
-                    VALUES (:id, :owner_username, :title, :subject, :due_date, :priority, :completed)
-                    """,
-                    {
-                        "id": item.get("id") or datetime.now().strftime("task-%Y%m%d%H%M%S%f"),
-                        "owner_username": str(
-                            item.get("owner_username") or os.environ.get("LEGACY_STUDY_OWNER_USERNAME", "")
-                        ).strip().lower(),
-                        "title": item.get("title", ""),
-                        "subject": item.get("subject", ""),
-                        "due_date": item.get("due_date", ""),
-                        "priority": item.get("priority", "Trung bình"),
-                        "completed": 1 if item.get("completed") else 0,
-                    },
-                )
+                self._insert_assignment_row(conn, {
+                    "id": item.get("id") or datetime.now().strftime("task-%Y%m%d%H%M%S%f"),
+                    "owner_username": str(
+                        item.get("owner_username") or os.environ.get("LEGACY_STUDY_OWNER_USERNAME", "")
+                    ).strip().lower(),
+                    "title": item.get("title", ""),
+                    "subject": item.get("subject", ""),
+                    "due_date": item.get("due_date", ""),
+                    "priority": item.get("priority", "Trung bình"),
+                    "completed": 1 if item.get("completed") else 0,
+                })
 
     def _new_schedule_id(self) -> str:
         return f"lesson-{uuid4().hex}"
@@ -167,12 +268,13 @@ class StudyRepository:
         owner_username = str(username or "").strip().lower()
         if not owner_username:
             return []
-        with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM schedule WHERE owner_username=? ORDER BY day, period, session",
-                (owner_username,),
-            ).fetchall()
-        return [dict(row) for row in rows]
+        with self._lock, self._connect() as conn:
+            rows = self._query(
+                conn,
+                "SELECT * FROM schedule WHERE owner_username=:owner ORDER BY day, period, session",
+                {"owner": owner_username},
+            )
+        return rows
 
     def upsert_schedule_slot(
         self,
@@ -199,7 +301,7 @@ class StudyRepository:
             raise ValueError("Danh sách tiết học không hợp lệ.")
 
         created: list[dict[str, Any]] = []
-        with self._connect() as conn:
+        with self._lock, self._connect() as conn:
             for raw_slot in slots:
                 session = str(raw_slot.get("session", "morning")).strip()
                 day = str(raw_slot.get("day", "2")).strip()
@@ -220,14 +322,17 @@ class StudyRepository:
                 if not subject:
                     raise ValueError("Tên môn học không được để trống.")
 
-                row = conn.execute(
-                    "SELECT * FROM schedule WHERE owner_username=? AND session=? AND day=? AND period=?",
-                    (owner_username, session, day, period),
-                ).fetchone()
-                if row:
-                    conn.execute(
-                        "UPDATE schedule SET subject=?, lecturer=? WHERE id=?",
-                        (subject, lecturer, row["id"]),
+                existing = self._query(
+                    conn,
+                    "SELECT * FROM schedule WHERE owner_username=:owner AND session=:session AND day=:day AND period=:period",
+                    {"owner": owner_username, "session": session, "day": day, "period": period},
+                )
+                if existing:
+                    row = existing[0]
+                    self._query(
+                        conn,
+                        "UPDATE schedule SET subject=:subject, lecturer=:lecturer WHERE id=:id",
+                        {"subject": subject, "lecturer": lecturer, "id": row["id"]},
                     )
                     item = dict(row)
                     item.update({"subject": subject, "lecturer": lecturer})
@@ -246,24 +351,25 @@ class StudyRepository:
                     "start": "",
                     "room": "",
                 }
-                conn.execute(
-                    "INSERT INTO schedule (id, owner_username, session, day, period, subject, lecturer, reminder_minutes, start, room) VALUES (:id, :owner_username, :session, :day, :period, :subject, :lecturer, :reminder_minutes, :start, :room)",
-                    item,
-                )
+                self._insert_schedule_row(conn, item)
                 created.append(item)
-            conn.commit()
+            if is_postgres():
+                conn.commit()
         return created
 
     def delete_schedule_slot(self, session: str, day: str, period: int, username: str) -> bool:
         owner_username = str(username or "").strip().lower()
         if not owner_username:
             return False
-        with self._connect() as conn:
+        with self._lock, self._connect() as conn:
             cursor = conn.execute(
+                "DELETE FROM schedule WHERE owner_username=%s AND session=%s AND day=%s AND period=%s"
+                if is_postgres() else
                 "DELETE FROM schedule WHERE owner_username=? AND session=? AND day=? AND period=?",
                 (owner_username, session, str(day), int(period)),
             )
-            conn.commit()
+            if is_postgres():
+                conn.commit()
             return cursor.rowcount > 0
 
     def add_schedule(
@@ -288,23 +394,22 @@ class StudyRepository:
             "session": "morning",
             "period": 1,
         }
-        with self._connect() as conn:
-            conn.execute(
-                "INSERT INTO schedule (id, owner_username, session, day, period, subject, lecturer, reminder_minutes, start, room) VALUES (:id, :owner_username, :session, :day, :period, :subject, :lecturer, :reminder_minutes, :start, :room)",
-                item,
-            )
-            conn.commit()
+        with self._lock, self._connect() as conn:
+            self._insert_schedule_row(conn, item)
+            if is_postgres():
+                conn.commit()
         return item
 
     def get_assignments(self, username: str | None) -> list[dict[str, Any]]:
         owner_username = str(username or "").strip().lower()
         if not owner_username:
             return []
-        with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM assignments WHERE owner_username=? ORDER BY due_date",
-                (owner_username,),
-            ).fetchall()
+        with self._lock, self._connect() as conn:
+            rows = self._query(
+                conn,
+                "SELECT * FROM assignments WHERE owner_username=:owner ORDER BY due_date",
+                {"owner": owner_username},
+            )
         assignments = [dict(row) for row in rows]
         for item in assignments:
             item["completed"] = bool(item.get("completed"))
@@ -320,12 +425,10 @@ class StudyRepository:
             "priority": priority,
             "completed": 0,
         }
-        with self._connect() as conn:
-            conn.execute(
-                "INSERT INTO assignments (id, owner_username, title, subject, due_date, priority, completed) VALUES (:id, :owner_username, :title, :subject, :due_date, :priority, :completed)",
-                item,
-            )
-            conn.commit()
+        with self._lock, self._connect() as conn:
+            self._insert_assignment_row(conn, item)
+            if is_postgres():
+                conn.commit()
         item["completed"] = False
         return item
 
@@ -333,22 +436,28 @@ class StudyRepository:
         owner_username = str(username or "").strip().lower()
         if not owner_username:
             return False
-        with self._connect() as conn:
+        with self._lock, self._connect() as conn:
             cursor = conn.execute(
+                "UPDATE assignments SET completed=%s WHERE id=%s AND owner_username=%s"
+                if is_postgres() else
                 "UPDATE assignments SET completed=? WHERE id=? AND owner_username=?",
                 (1 if completed else 0, assignment_id, owner_username),
             )
-            conn.commit()
+            if is_postgres():
+                conn.commit()
             return cursor.rowcount > 0
 
     def delete_assignment(self, assignment_id: str, username: str) -> bool:
         owner_username = str(username or "").strip().lower()
         if not owner_username:
             return False
-        with self._connect() as conn:
+        with self._lock, self._connect() as conn:
             cursor = conn.execute(
+                "DELETE FROM assignments WHERE id=%s AND owner_username=%s"
+                if is_postgres() else
                 "DELETE FROM assignments WHERE id=? AND owner_username=?",
                 (assignment_id, owner_username),
             )
-            conn.commit()
+            if is_postgres():
+                conn.commit()
             return cursor.rowcount > 0

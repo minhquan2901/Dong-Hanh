@@ -9,7 +9,9 @@ from threading import RLock
 from uuid import uuid4
 from typing import Any
 
-from data_storage import backup_critical_file, data_file, write_json_atomic
+from data_storage import data_file, write_json_atomic
+
+from db import load_document, save_document
 
 USERS_FILE = data_file("users.json")
 LINK_REQUESTS_FILE = data_file("link_requests.json")
@@ -30,34 +32,24 @@ def _ensure_link_request_store() -> None:
 
 
 def _load_link_requests() -> list[dict[str, Any]]:
-    _ensure_link_request_store()
-    try:
-        requests = json.loads(LINK_REQUESTS_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"Không đọc được dữ liệu liên kết tại {LINK_REQUESTS_FILE}.") from exc
+    requests = load_document("link_requests", [], "liên kết")
     if not isinstance(requests, list):
-        raise RuntimeError(f"Dữ liệu liên kết tại {LINK_REQUESTS_FILE} không hợp lệ.")
+        raise RuntimeError("Dữ liệu liên kết không hợp lệ.")
     return requests
 
 
 def _save_link_requests(requests: list[dict[str, Any]]) -> None:
-    _ensure_link_request_store()
-    backup_critical_file("link_requests.json")
-    write_json_atomic(LINK_REQUESTS_FILE, requests)
+    save_document("link_requests", requests)
 
 
 def load_users() -> list[dict[str, Any]]:
     with USERS_LOCK:
-        _ensure_store()
-        try:
-            data = json.loads(USERS_FILE.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise RuntimeError(f"Không đọc được dữ liệu tài khoản tại {USERS_FILE}.") from exc
+        data = load_document("users", {"users": []}, "tài khoản")
         if not isinstance(data, dict):
-            raise RuntimeError(f"Dữ liệu tài khoản tại {USERS_FILE} không hợp lệ.")
+            raise RuntimeError("Dữ liệu tài khoản không hợp lệ.")
         users = data.get("users", [])
         if not isinstance(users, list):
-            raise RuntimeError(f"Danh sách tài khoản tại {USERS_FILE} không hợp lệ.")
+            raise RuntimeError("Danh sách tài khoản không hợp lệ.")
 
         used_codes = {
             str(user.get("student_id", "")).strip().upper()
@@ -81,9 +73,7 @@ def load_users() -> list[dict[str, Any]]:
 
 
 def save_users(users: list[dict[str, Any]]) -> None:
-    _ensure_store()
-    backup_critical_file("users.json")
-    write_json_atomic(USERS_FILE, {"users": users})
+    save_document("users", {"users": users})
 
 
 def get_user_by_username(username: str) -> dict[str, Any] | None:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from collections import Counter
 from datetime import datetime, timezone
 from threading import RLock
@@ -8,7 +7,8 @@ from typing import Any
 from uuid import uuid4
 
 from auth_service import get_user_by_username, load_users, update_account
-from data_storage import data_file, write_json_atomic
+from data_storage import data_file
+from db import load_document, save_document
 
 
 USAGE_FILE = data_file("feature_usage.json")
@@ -22,32 +22,18 @@ def record_successful_feature_use(username: str, feature: str) -> None:
         return
 
     with USAGE_LOCK:
-        if not USAGE_FILE.exists():
-            events: list[dict[str, str]] = []
-        else:
-            try:
-                events = json.loads(USAGE_FILE.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError) as exc:
-                raise RuntimeError("Không đọc được thống kê sử dụng tính năng.") from exc
-            if not isinstance(events, list):
-                raise RuntimeError("Dữ liệu thống kê sử dụng không hợp lệ.")
-
+        events = _read_usage_events()
         events.append({
             "id": uuid4().hex,
             "username": clean_username,
             "feature": clean_feature,
             "used_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         })
-        write_json_atomic(USAGE_FILE, events)
+        save_document("feature_usage", events)
 
 
 def _read_usage_events() -> list[dict[str, Any]]:
-    if not USAGE_FILE.exists():
-        return []
-    try:
-        events = json.loads(USAGE_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError("Không đọc được thống kê sử dụng tính năng.") from exc
+    events = load_document("feature_usage", [], "thống kê sử dụng tính năng")
     if not isinstance(events, list):
         raise RuntimeError("Dữ liệu thống kê sử dụng không hợp lệ.")
     return events
