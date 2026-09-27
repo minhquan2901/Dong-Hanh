@@ -263,14 +263,15 @@ def _notifications_for_user(username: str) -> list[dict]:
     if not user:
         return []
     study = StudyBus()
-    tasks = study.assignments()
     if user.get("role") == "parent":
         students = get_students_for_parent(username)
         if not students:
             return []
         alerts: list[dict] = []
-        stats = study.stats()
         for student in students:
+            student_username = str(student.get("username", ""))
+            tasks = study.assignments(student_username)
+            stats = study.stats(student_username)
             alerts.extend({
                 "student": student.get("full_name") or student.get("username"),
                 **alert,
@@ -280,7 +281,8 @@ def _notifications_for_user(username: str) -> list[dict]:
                 tasks,
             ))
         return alerts[:10]
-    stats = study.stats()
+    tasks = study.assignments(username)
+    stats = study.stats(username)
     return _build_student_alerts(
         user.get("full_name") or username,
         int(stats["completion_rate"]),
@@ -475,7 +477,7 @@ def student_dashboard(username: str = Query(...), authorization: str | None = He
         raise HTTPException(status_code=404, detail="Không tìm thấy học sinh.")
 
     study = StudyBus()
-    tasks = study.assignments()
+    tasks = study.assignments(username)
     total = len(tasks)
     completed = sum(1 for item in tasks if item.get("completed"))
     pending = total - completed
@@ -497,7 +499,7 @@ def student_dashboard(username: str = Query(...), authorization: str | None = He
             "pending": pending,
             "completion_rate": completion_rate,
         },
-        "schedule": study.schedule(),
+        "schedule": study.schedule(username),
         "assignments": tasks,
         "alerts": alerts,
     }
@@ -540,15 +542,20 @@ def parent_dashboard(username: str = Query(...), authorization: str | None = Hea
     students = get_students_for_parent(username)
 
     study = StudyBus()
-    tasks = study.assignments() if students else []
+    tasks_by_username = {
+        str(student.get("username", "")): study.assignments(str(student.get("username", "")))
+        for student in students
+    }
+    tasks = [task for student_tasks in tasks_by_username.values() for task in student_tasks]
     completed_tasks = sum(1 for item in tasks if item.get("completed"))
     total_tasks = len(tasks)
     overall_completion = round(completed_tasks / total_tasks * 100) if total_tasks else 0
 
     student_rows = []
     for student in students:
-        student_total = len(tasks)
-        student_completed = min(completed_tasks, student_total)
+        student_tasks = tasks_by_username.get(str(student.get("username", "")), [])
+        student_total = len(student_tasks)
+        student_completed = sum(1 for task in student_tasks if task.get("completed"))
         row_rate = round(student_completed / student_total * 100) if student_total else 0
         student_rows.append({
             "username": student.get("username"),
@@ -558,7 +565,11 @@ def parent_dashboard(username: str = Query(...), authorization: str | None = Hea
             "avatar": student.get("avatar", ""),
             "is_active": student.get("is_active", True),
             "completion_rate": row_rate,
-            "alerts": _build_student_alerts(student.get("full_name") or student.get("username"), row_rate, tasks),
+            "alerts": _build_student_alerts(student.get("full_name") or student.get("username"), row_rate, student_tasks),
+            "schedule": study.schedule(str(student.get("username", ""))),
+            "completed_tasks": student_completed,
+            "pending_tasks": student_total - student_completed,
+            "total_tasks": student_total,
         })
 
     alerts = []
@@ -580,7 +591,10 @@ def parent_dashboard(username: str = Query(...), authorization: str | None = Hea
             {
                 "title": task.get("title", "Nhiệm vụ"),
                 "subject": task.get("subject", "Không xác định"),
-                "student_name": student_rows[0]["full_name"] if student_rows else "Học sinh",
+                "student_name": next(
+                    (row["full_name"] for row in student_rows if row["username"] == task.get("owner_username")),
+                    "Học sinh",
+                ),
                 "completed": bool(task.get("completed")),
                 "due_date": task.get("due_date", str(date.today())),
             }
@@ -599,7 +613,7 @@ def update_schedule_slot(payload: ScheduleSlotPayload, authorization: str | None
     _require_user_session(authorization, payload.username or "", {"student"})
     try:
         item = StudyBus().upsert_schedule_slot(
-            payload.session, payload.day, payload.period, payload.subject, payload.lecturer
+            payload.session, payload.day, payload.period, payload.subject, payload.lecturer, payload.username or ""
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -635,6 +649,7 @@ def bulk_update_schedule_slots(payload: ScheduleSlotBulkPayload, authorization: 
                 "period": item.period,
                 "subject": item.subject,
                 "lecturer": item.lecturer,
+                "username": item.username or "",
             }
             for item in payload.slots
         ]
@@ -667,7 +682,7 @@ def bulk_update_schedule_slots(payload: ScheduleSlotBulkPayload, authorization: 
 @app.delete("/api/schedule/slot")
 def delete_schedule_slot(payload: ScheduleSlotDeletePayload, authorization: str | None = Header(default=None)):
     _require_user_session(authorization, payload.username or "", {"student"})
-    deleted = StudyBus().delete_schedule_slot(payload.session, payload.day, payload.period)
+    deleted = StudyBus().delete_schedule_slot(payload.session, payload.day, payload.period, payload.username or "")
     if not deleted:
         raise HTTPException(status_code=404, detail="Không tìm thấy tiết học.")
     _record_feature_success(payload.username, authorization.partition(" ")[2] if authorization else None, "schedule")
@@ -686,7 +701,7 @@ def create_assignment(payload: AssignmentPayload, authorization: str | None = He
     _require_user_session(authorization, payload.username or "", {"student"})
     try:
         item = StudyBus().add_assignment(
-            payload.title, payload.subject, payload.due_date, payload.priority
+            payload.title, payload.subject, payload.due_date, payload.priority, payload.username or ""
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -705,11 +720,11 @@ def create_assignment(payload: AssignmentPayload, authorization: str | None = He
 def update_assignment(assignment_id: str, payload: AssignmentCompletionPayload, authorization: str | None = Header(default=None)):
     _require_user_session(authorization, payload.username or "", {"student"})
     study = StudyBus()
-    if not study.set_completed(assignment_id, payload.completed):
+    if not study.set_completed(assignment_id, payload.completed, payload.username or ""):
         raise HTTPException(status_code=404, detail="Không tìm thấy nhiệm vụ.")
     _record_feature_success(payload.username, authorization.partition(" ")[2] if authorization else None, "assignments")
     if payload.username and payload.completed:
-        task = next((item for item in study.assignments() if item.get("id") == assignment_id), None)
+        task = next((item for item in study.assignments(payload.username) if item.get("id") == assignment_id), None)
         title = str(task.get("title", "nhiệm vụ")) if task else "nhiệm vụ"
         send_web_push_to_user(
             payload.username,
@@ -729,7 +744,7 @@ def update_assignment(assignment_id: str, payload: AssignmentCompletionPayload, 
 @app.delete("/api/assignments/{assignment_id}")
 def delete_assignment(assignment_id: str, username: str = Query(...), authorization: str | None = Header(default=None)):
     _require_user_session(authorization, username, {"student"})
-    if not StudyBus().delete_assignment(assignment_id):
+    if not StudyBus().delete_assignment(assignment_id, username):
         raise HTTPException(status_code=404, detail="Không tìm thấy nhiệm vụ.")
     _record_feature_success(username, authorization.partition(" ")[2] if authorization else None, "assignments")
     return {"message": "Đã xóa nhiệm vụ."}

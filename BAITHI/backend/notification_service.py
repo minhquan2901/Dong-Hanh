@@ -273,11 +273,14 @@ def _minutes_until_lesson(lesson: dict[str, Any]) -> int | None:
     return int((lesson_dt - today).total_seconds() // 60)
 
 
-def build_notification_payloads() -> list[dict[str, str]]:
+def _build_notification_payloads_for_user(username: str) -> list[dict[str, str]]:
+    owner_username = str(username or "").strip().lower()
+    if not owner_username:
+        return []
     study = StudyBus()
     payloads: list[dict[str, str]] = []
 
-    for lesson in study.schedule():
+    for lesson in study.schedule(owner_username):
         reminder_minutes = int(lesson.get("reminder_minutes", 30))
         minutes_until = _minutes_until_lesson(lesson)
         if minutes_until is None:
@@ -285,12 +288,13 @@ def build_notification_payloads() -> list[dict[str, str]]:
         if 0 <= minutes_until <= reminder_minutes:
             payloads.append(
                 {
+                    "username": owner_username,
                     "title": f"Nhắc lịch: {lesson['subject']}",
                     "body": f"{lesson['day']} lúc {lesson['start']} · Phòng {lesson['room']} · còn {minutes_until} phút",
                 }
             )
 
-    for task in study.due_soon(7):
+    for task in study.due_soon(7, owner_username):
         if bool(task.get("completed")):
             continue
         due_date = task.get("due_date")
@@ -304,12 +308,18 @@ def build_notification_payloads() -> list[dict[str, str]]:
         if 0 <= delta_days <= 7:
             payloads.append(
                 {
+                    "username": owner_username,
                     "title": f"Deadline: {task['title']}",
                     "body": f"{task['subject']} · hạn {due.isoformat()} · ưu tiên {task['priority']}",
                 }
             )
 
     return payloads
+
+
+def build_notification_payloads() -> list[dict[str, str]]:
+    # The standalone preview endpoint has no user session, so it must not reveal records.
+    return []
 
 
 def send_fcm_message(
@@ -358,8 +368,13 @@ def send_web_push_to_user(
 
 def send_due_task_reminders(today: date | None = None) -> list[dict[str, Any]]:
     target_day = (today or date.today()) + timedelta(days=1)
-    assignments = StudyBus().assignments()
-    usernames = get_web_push_usernames()
+    study = StudyBus()
+    with study.repository._connect() as conn:
+        assignments = [
+            dict(row) for row in conn.execute(
+                "SELECT * FROM assignments WHERE owner_username != '' ORDER BY due_date"
+            ).fetchall()
+        ]
     sent_state = _read_json(PUSH_REMINDER_STATE_FILE, {})
     if not isinstance(sent_state, dict):
         sent_state = {}
@@ -376,22 +391,24 @@ def send_due_task_reminders(today: date | None = None) -> list[dict[str, Any]]:
         if due_date != target_day:
             continue
 
+        username = str(task.get("owner_username", "")).strip()
+        if not username:
+            continue
         task_id = str(task.get("id", ""))
-        for username in usernames:
-            reminder_key = f"{username}|{task_id}|{target_day.isoformat()}"
-            if sent_state.get(reminder_key):
-                continue
-            token_results = send_web_push_to_user(
-                username,
-                "Nhiệm vụ còn 1 ngày",
-                f"{task.get('title', 'Nhiệm vụ')} · {task.get('subject', '')} · hạn {target_day:%d/%m/%Y}.",
-                "/student#assignments",
-            )
-            was_sent = any(item.get("status") == "sent" for item in token_results)
-            results.append({"username": username, "task_id": task_id, "sent": was_sent, "devices": len(token_results)})
-            if was_sent:
-                sent_state[reminder_key] = datetime.now().isoformat(timespec="seconds")
-                changed = True
+        reminder_key = f"{username}|{task_id}|{target_day.isoformat()}"
+        if sent_state.get(reminder_key):
+            continue
+        token_results = send_web_push_to_user(
+            username,
+            "Nhiệm vụ còn 1 ngày",
+            f"{task.get('title', 'Nhiệm vụ')} · {task.get('subject', '')} · hạn {target_day:%d/%m/%Y}.",
+            "/student#assignments",
+        )
+        was_sent = any(item.get("status") == "sent" for item in token_results)
+        results.append({"username": username, "task_id": task_id, "sent": was_sent, "devices": len(token_results)})
+        if was_sent:
+            sent_state[reminder_key] = datetime.now().isoformat(timespec="seconds")
+            changed = True
 
     if changed:
         _write_json(PUSH_REMINDER_STATE_FILE, sent_state)
@@ -406,20 +423,19 @@ def send_push_notification(token: str, title: str, body: str) -> dict[str, Any]:
 
 def send_notifications_to_registered_devices() -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
-    web_tokens = get_registered_web_tokens()
-    mobile_tokens = get_registered_mobile_tokens()
-    all_tokens = web_tokens + mobile_tokens
-
-    for payload in build_notification_payloads():
-        for token in all_tokens:
-            result = send_fcm_message(token, payload["title"], payload["body"])
-            results.append({
-                "token": token,
-                "device_type": "web" if token in web_tokens else "mobile",
-                "title": payload["title"],
-                "body": payload["body"],
-                "result": result,
-            })
+    usernames = get_web_push_usernames()
+    for username in usernames:
+        for payload in _build_notification_payloads_for_user(username):
+            for token in get_user_web_tokens(username):
+                result = send_fcm_message(token, payload["title"], payload["body"])
+                results.append({
+                    "username": username,
+                    "token": token,
+                    "device_type": "web",
+                    "title": payload["title"],
+                    "body": payload["body"],
+                    "result": result,
+                })
     return results
 
 

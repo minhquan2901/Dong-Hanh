@@ -90,20 +90,16 @@ def test_due_task_push_is_sent_once_per_user_and_deadline(tmp_path, monkeypatch)
     reminder_state = tmp_path / "push_reminder_state.json"
     monkeypatch.setattr("backend.notification_service.WEB_PUSH_SUBSCRIPTIONS_FILE", subscriptions)
     monkeypatch.setattr("backend.notification_service.PUSH_REMINDER_STATE_FILE", reminder_state)
+    monkeypatch.setattr(
+        "database.study_repository.data_file",
+        lambda name: tmp_path / name,
+    )
 
-    class FakeStudyBus:
-        def assignments(self):
-            return [{
-                "id": "task-1",
-                "title": "Bài Toán",
-                "subject": "Toán",
-                "due_date": "2026-09-28",
-                "priority": "Cao",
-                "completed": False,
-            }]
+    register_user_web_token("student-b", "desktop-token-2")
+    from bus.study_bus import StudyBus
+    StudyBus().add_assignment("Bài Toán", "Toán", date(2026, 9, 28), "Cao", "student-a")
 
     sent = []
-    monkeypatch.setattr("backend.notification_service.StudyBus", FakeStudyBus)
     monkeypatch.setattr(
         "backend.notification_service.send_web_push_to_user",
         lambda username, title, body, path: sent.append((username, title, body, path)) or [{"status": "sent"}],
@@ -116,3 +112,4 @@ def test_due_task_push_is_sent_once_per_user_and_deadline(tmp_path, monkeypatch)
     assert len(first) == 1 and first[0]["sent"] is True
     assert second == []
     assert len(sent) == 1
+    assert sent[0][0] == "student-a"

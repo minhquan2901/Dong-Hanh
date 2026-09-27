@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -36,6 +37,7 @@ class StudyRepository:
                 """
                 CREATE TABLE IF NOT EXISTS schedule (
                     id TEXT PRIMARY KEY,
+                    owner_username TEXT NOT NULL DEFAULT '',
                     session TEXT,
                     day TEXT,
                     period INTEGER,
@@ -51,6 +53,7 @@ class StudyRepository:
                 """
                 CREATE TABLE IF NOT EXISTS assignments (
                     id TEXT PRIMARY KEY,
+                    owner_username TEXT NOT NULL DEFAULT '',
                     title TEXT,
                     subject TEXT,
                     due_date TEXT,
@@ -59,6 +62,32 @@ class StudyRepository:
                 )
                 """
             )
+            for table in ("schedule", "assignments"):
+                columns = {
+                    row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+                }
+                if "owner_username" not in columns:
+                    conn.execute(
+                        f"ALTER TABLE {table} ADD COLUMN owner_username TEXT NOT NULL DEFAULT ''"
+                    )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS schedule_owner_slot_idx "
+                "ON schedule(owner_username, session, day, period)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS assignments_owner_due_idx "
+                "ON assignments(owner_username, due_date)"
+            )
+            legacy_owner = os.environ.get("LEGACY_STUDY_OWNER_USERNAME", "").strip()
+            if legacy_owner:
+                conn.execute(
+                    "UPDATE schedule SET owner_username=? WHERE owner_username=''",
+                    (legacy_owner,),
+                )
+                conn.execute(
+                    "UPDATE assignments SET owner_username=? WHERE owner_username=''",
+                    (legacy_owner,),
+                )
 
     def _migrate_json_file_if_needed(self) -> None:
         with self._connect() as conn:
@@ -77,11 +106,14 @@ class StudyRepository:
             for item in data.get("schedule", []):
                 conn.execute(
                     """
-                    INSERT OR REPLACE INTO schedule (id, session, day, period, subject, lecturer, reminder_minutes, start, room)
-                    VALUES (:id, :session, :day, :period, :subject, :lecturer, :reminder_minutes, :start, :room)
+                    INSERT OR REPLACE INTO schedule (id, owner_username, session, day, period, subject, lecturer, reminder_minutes, start, room)
+                    VALUES (:id, :owner_username, :session, :day, :period, :subject, :lecturer, :reminder_minutes, :start, :room)
                     """,
                     {
                         "id": item.get("id") or datetime.now().strftime("lesson-%Y%m%d%H%M%S%f"),
+                        "owner_username": str(
+                            item.get("owner_username") or os.environ.get("LEGACY_STUDY_OWNER_USERNAME", "")
+                        ).strip().lower(),
                         "session": item.get("session", "morning"),
                         "day": str(item.get("day", "2")),
                         "period": int(item.get("period", 1)),
@@ -95,11 +127,14 @@ class StudyRepository:
             for item in data.get("assignments", []):
                 conn.execute(
                     """
-                    INSERT OR REPLACE INTO assignments (id, title, subject, due_date, priority, completed)
-                    VALUES (:id, :title, :subject, :due_date, :priority, :completed)
+                    INSERT OR REPLACE INTO assignments (id, owner_username, title, subject, due_date, priority, completed)
+                    VALUES (:id, :owner_username, :title, :subject, :due_date, :priority, :completed)
                     """,
                     {
                         "id": item.get("id") or datetime.now().strftime("task-%Y%m%d%H%M%S%f"),
+                        "owner_username": str(
+                            item.get("owner_username") or os.environ.get("LEGACY_STUDY_OWNER_USERNAME", "")
+                        ).strip().lower(),
                         "title": item.get("title", ""),
                         "subject": item.get("subject", ""),
                         "due_date": item.get("due_date", ""),
@@ -128,10 +163,14 @@ class StudyRepository:
             json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
         )
 
-    def get_schedule(self) -> list[dict[str, Any]]:
+    def get_schedule(self, username: str | None) -> list[dict[str, Any]]:
+        owner_username = str(username or "").strip().lower()
+        if not owner_username:
+            return []
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM schedule ORDER BY day, period, session"
+                "SELECT * FROM schedule WHERE owner_username=? ORDER BY day, period, session",
+                (owner_username,),
             ).fetchall()
         return [dict(row) for row in rows]
 
@@ -142,6 +181,7 @@ class StudyRepository:
         period: int,
         subject: str,
         lecturer: str,
+        username: str,
     ) -> dict[str, Any]:
         return self.upsert_schedule_slots([
             {
@@ -150,6 +190,7 @@ class StudyRepository:
                 "period": period,
                 "subject": subject,
                 "lecturer": lecturer,
+                "username": username,
             }
         ])[0]
 
@@ -165,6 +206,10 @@ class StudyRepository:
                 period = int(raw_slot.get("period", 1))
                 subject = str(raw_slot.get("subject", "")).strip()
                 lecturer = str(raw_slot.get("lecturer", "")).strip()
+                owner_username = str(raw_slot.get("username", "")).strip().lower()
+
+                if not owner_username:
+                    raise ValueError("Không xác định được tài khoản sở hữu thời khóa biểu.")
 
                 if session not in {"morning", "afternoon"}:
                     raise ValueError("Buổi học không hợp lệ.")
@@ -176,8 +221,8 @@ class StudyRepository:
                     raise ValueError("Tên môn học không được để trống.")
 
                 row = conn.execute(
-                    "SELECT * FROM schedule WHERE session=? AND day=? AND period=?",
-                    (session, day, period),
+                    "SELECT * FROM schedule WHERE owner_username=? AND session=? AND day=? AND period=?",
+                    (owner_username, session, day, period),
                 ).fetchone()
                 if row:
                     conn.execute(
@@ -191,6 +236,7 @@ class StudyRepository:
 
                 item = {
                     "id": self._new_schedule_id(),
+                    "owner_username": owner_username,
                     "session": session,
                     "day": day,
                     "period": period,
@@ -201,18 +247,21 @@ class StudyRepository:
                     "room": "",
                 }
                 conn.execute(
-                    "INSERT INTO schedule (id, session, day, period, subject, lecturer, reminder_minutes, start, room) VALUES (:id, :session, :day, :period, :subject, :lecturer, :reminder_minutes, :start, :room)",
+                    "INSERT INTO schedule (id, owner_username, session, day, period, subject, lecturer, reminder_minutes, start, room) VALUES (:id, :owner_username, :session, :day, :period, :subject, :lecturer, :reminder_minutes, :start, :room)",
                     item,
                 )
                 created.append(item)
             conn.commit()
         return created
 
-    def delete_schedule_slot(self, session: str, day: str, period: int) -> bool:
+    def delete_schedule_slot(self, session: str, day: str, period: int, username: str) -> bool:
+        owner_username = str(username or "").strip().lower()
+        if not owner_username:
+            return False
         with self._connect() as conn:
             cursor = conn.execute(
-                "DELETE FROM schedule WHERE session=? AND day=? AND period=?",
-                (session, str(day), int(period)),
+                "DELETE FROM schedule WHERE owner_username=? AND session=? AND day=? AND period=?",
+                (owner_username, session, str(day), int(period)),
             )
             conn.commit()
             return cursor.rowcount > 0
@@ -225,9 +274,11 @@ class StudyRepository:
         room: str,
         lecturer: str,
         reminder_minutes: int,
+        username: str,
     ) -> dict[str, Any]:
         item = {
             "id": self._new_schedule_id(),
+            "owner_username": str(username or "").strip().lower(),
             "subject": subject,
             "day": day,
             "start": start,
@@ -239,25 +290,30 @@ class StudyRepository:
         }
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO schedule (id, session, day, period, subject, lecturer, reminder_minutes, start, room) VALUES (:id, :session, :day, :period, :subject, :lecturer, :reminder_minutes, :start, :room)",
+                "INSERT INTO schedule (id, owner_username, session, day, period, subject, lecturer, reminder_minutes, start, room) VALUES (:id, :owner_username, :session, :day, :period, :subject, :lecturer, :reminder_minutes, :start, :room)",
                 item,
             )
             conn.commit()
         return item
 
-    def get_assignments(self) -> list[dict[str, Any]]:
+    def get_assignments(self, username: str | None) -> list[dict[str, Any]]:
+        owner_username = str(username or "").strip().lower()
+        if not owner_username:
+            return []
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM assignments ORDER BY due_date"
+                "SELECT * FROM assignments WHERE owner_username=? ORDER BY due_date",
+                (owner_username,),
             ).fetchall()
         assignments = [dict(row) for row in rows]
         for item in assignments:
             item["completed"] = bool(item.get("completed"))
         return assignments
 
-    def add_assignment(self, title: str, subject: str, due_date: str, priority: str) -> dict[str, Any]:
+    def add_assignment(self, title: str, subject: str, due_date: str, priority: str, username: str) -> dict[str, Any]:
         item = {
-            "id": datetime.now().strftime("task-%Y%m%d%H%M%S%f"),
+            "id": f"task-{uuid4().hex}",
+            "owner_username": str(username or "").strip().lower(),
             "title": title,
             "subject": subject,
             "due_date": due_date,
@@ -266,27 +322,33 @@ class StudyRepository:
         }
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO assignments (id, title, subject, due_date, priority, completed) VALUES (:id, :title, :subject, :due_date, :priority, :completed)",
+                "INSERT INTO assignments (id, owner_username, title, subject, due_date, priority, completed) VALUES (:id, :owner_username, :title, :subject, :due_date, :priority, :completed)",
                 item,
             )
             conn.commit()
         item["completed"] = False
         return item
 
-    def set_assignment_completed(self, assignment_id: str, completed: bool) -> bool:
+    def set_assignment_completed(self, assignment_id: str, completed: bool, username: str) -> bool:
+        owner_username = str(username or "").strip().lower()
+        if not owner_username:
+            return False
         with self._connect() as conn:
             cursor = conn.execute(
-                "UPDATE assignments SET completed=? WHERE id=?",
-                (1 if completed else 0, assignment_id),
+                "UPDATE assignments SET completed=? WHERE id=? AND owner_username=?",
+                (1 if completed else 0, assignment_id, owner_username),
             )
             conn.commit()
             return cursor.rowcount > 0
 
-    def delete_assignment(self, assignment_id: str) -> bool:
+    def delete_assignment(self, assignment_id: str, username: str) -> bool:
+        owner_username = str(username or "").strip().lower()
+        if not owner_username:
+            return False
         with self._connect() as conn:
             cursor = conn.execute(
-                "DELETE FROM assignments WHERE id=?",
-                (assignment_id,),
+                "DELETE FROM assignments WHERE id=? AND owner_username=?",
+                (assignment_id, owner_username),
             )
             conn.commit()
             return cursor.rowcount > 0
