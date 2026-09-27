@@ -216,6 +216,7 @@
 
     <script>
       const user = JSON.parse(localStorage.getItem('study_sync_user') || 'null');
+      const sessionToken = localStorage.getItem('study_sync_session_token') || '';
       if (!user || user.role !== 'parent') {
         window.location.href = '/login';
       }
@@ -238,7 +239,7 @@
       welcomeNameEl.textContent = `Theo dõi tiến độ cho ${user.full_name || 'học sinh'}`;
 
       async function loadDashboard() {
-        const response = await fetch(`/api/dashboard/parent?username=${encodeURIComponent(user.username)}`);
+        const response = await fetch(`/api/dashboard/parent?username=${encodeURIComponent(user.username)}`, { headers: { 'Authorization': `Bearer ${sessionToken}` } });
         const data = await response.json();
         if (!response.ok) throw new Error(data.detail || 'Không thể tải dữ liệu.');
         renderStats(data.overview);
@@ -318,7 +319,7 @@
       document.getElementById('link-form').addEventListener('submit', async (event) => {
         event.preventDefault();
         const message = document.getElementById('management-message');
-        const response = await fetch('/api/parent/link-student', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ parent_username: user.username, student_id: document.getElementById('student-code').value.trim() }) });
+        const response = await fetch('/api/parent/link-student', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` }, body: JSON.stringify({ parent_username: user.username, student_id: document.getElementById('student-code').value.trim() }) });
         const result = await response.json();
         message.textContent = result.message || result.detail || 'Đã xử lý.';
         if (response.ok) { event.target.reset(); await loadDashboard(); }
@@ -327,7 +328,7 @@
       document.getElementById('cancel-profile').addEventListener('click', () => document.getElementById('profile-form').classList.remove('open'));
       document.getElementById('profile-form').addEventListener('submit', async (event) => {
         event.preventDefault();
-        const response = await fetch('/api/parent/student', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        const response = await fetch('/api/parent/student', { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` }, body: JSON.stringify({
           parent_username: user.username,
           student_id: document.getElementById('profile-student-id').value,
           full_name: document.getElementById('profile-name').value.trim(),
@@ -391,7 +392,7 @@
         const pin = document.getElementById('security-pin').value;
         if (pin !== document.getElementById('security-pin-confirm').value) { message.textContent = 'Hai mã PIN không khớp.'; return; }
         const response = await fetch('/api/security/pin', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` },
           body: JSON.stringify({ username: user.username, password, pin }),
         });
         const result = await response.json();
@@ -416,7 +417,7 @@
         event.preventDefault();
         const message = document.getElementById('pin-login-setting-message');
         const response = await fetch('/api/security/pin-login', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` },
           body: JSON.stringify({
             username: user.username,
             password: document.getElementById('pin-setting-password').value,
@@ -438,6 +439,7 @@
 
       async function logout() {
         localStorage.removeItem('study_sync_user');
+        localStorage.removeItem('study_sync_session_token');
         window.location.href = '/login';
       }
 

@@ -345,6 +345,7 @@
 
     <script>
       const user = JSON.parse(localStorage.getItem('study_sync_user') || 'null');
+      const sessionToken = localStorage.getItem('study_sync_session_token') || '';
       if (!user || user.role !== 'student') {
         window.location.href = '/login';
       }
@@ -558,7 +559,7 @@
         );
         const response = await fetch('/api/schedule/slots', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` },
           body: JSON.stringify({ slots }),
         });
         const result = await response.json();
@@ -589,7 +590,7 @@
           priority: document.getElementById('task-priority').value,
           username: user.username,
         };
-        const response = await fetch('/api/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const response = await fetch('/api/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` }, body: JSON.stringify(payload) });
         const result = await response.json();
         if (!response.ok) { showWebToast('Không thể thêm nhiệm vụ', result.detail || 'Vui lòng thử lại.'); return; }
         const existing = readStudentPersistedState();
@@ -646,7 +647,9 @@
 
       async function loadDashboard() {
         try {
-          const response = await fetch(`/api/dashboard/student?username=${encodeURIComponent(user.username)}`);
+          const response = await fetch(`/api/dashboard/student?username=${encodeURIComponent(user.username)}`, {
+            headers: { 'Authorization': `Bearer ${sessionToken}` },
+          });
           const data = await response.json().catch(() => ({}));
           if (!response.ok) {
             if (response.status === 404) {
@@ -694,7 +697,9 @@
 
       async function loadLinkInbox() {
         const inbox = document.getElementById('link-inbox');
-        const response = await fetch(`/api/student/link-requests?username=${encodeURIComponent(user.username)}`);
+        const response = await fetch(`/api/student/link-requests?username=${encodeURIComponent(user.username)}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` },
+        });
         if (!response.ok) return;
         const data = await response.json();
         const pending = (data.requests || []).filter((item) => item.status === 'pending');
@@ -715,7 +720,7 @@
       async function respondLinkRequest(requestId, accept) {
         const response = await fetch('/api/student/link-requests/respond', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` },
           body: JSON.stringify({ student_username: user.username, request_id: requestId, accept }),
         });
         const result = await response.json();
@@ -828,7 +833,7 @@
       async function removeSlot(session, day, period) {
         if (!confirm('Xóa tiết học này?')) return;
         const response = await fetch('/api/schedule/slot', {
-          method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+          method: 'DELETE', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` },
           body: JSON.stringify({ session, day, period, username: user.username }),
         });
         const result = await response.json();
@@ -860,7 +865,7 @@
       }
 
       async function toggleTask(taskId, completed) {
-        const response = await fetch(`/api/assignments/${encodeURIComponent(taskId)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ completed, username: user.username }) });
+        const response = await fetch(`/api/assignments/${encodeURIComponent(taskId)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` }, body: JSON.stringify({ completed, username: user.username }) });
         const result = await response.json();
         if (!response.ok) { showWebToast('Không thể cập nhật nhiệm vụ', result.detail || 'Vui lòng thử lại.'); return; }
         const existing = readStudentPersistedState();
@@ -876,7 +881,7 @@
 
       async function deleteTask(taskId) {
         if (!confirm('Xóa nhiệm vụ này?')) return;
-        const response = await fetch(`/api/assignments/${encodeURIComponent(taskId)}`, { method: 'DELETE' });
+        const response = await fetch(`/api/assignments/${encodeURIComponent(taskId)}?username=${encodeURIComponent(user.username)}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${sessionToken}` } });
         if (!response.ok) { alert('Không thể xóa nhiệm vụ.'); return; }
         const existing = readStudentPersistedState();
         saveStudentPersistedState({
@@ -894,7 +899,7 @@
         const pin = document.getElementById('security-pin').value;
         if (pin !== document.getElementById('security-pin-confirm').value) { message.textContent = 'Hai mã PIN không khớp.'; return; }
         const response = await fetch('/api/security/pin', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` },
           body: JSON.stringify({ username: user.username, password, pin }),
         });
         const result = await response.json();
@@ -919,7 +924,7 @@
         event.preventDefault();
         const message = document.getElementById('pin-login-setting-message');
         const response = await fetch('/api/security/pin-login', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` },
           body: JSON.stringify({
             username: user.username,
             password: document.getElementById('pin-setting-password').value,
@@ -941,6 +946,7 @@
 
       async function logout() {
         localStorage.removeItem('study_sync_user');
+        localStorage.removeItem('study_sync_session_token');
         window.location.href = '/login';
       }
 

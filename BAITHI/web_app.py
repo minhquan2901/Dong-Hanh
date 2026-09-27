@@ -32,6 +32,14 @@ from backend.notification_service import (
     send_web_push_to_user,
 )
 from bus.study_bus import StudyBus
+from owner_auth import (
+    authenticate_owner,
+    create_owner_token,
+    create_user_token,
+    verify_owner_token,
+    verify_user_token,
+)
+from owner_service import get_owner_overview, list_managed_users, record_successful_feature_use, set_managed_user_active
 
 ROOT = Path(__file__).resolve().parent
 STATIC_DIR = ROOT / "static"
@@ -120,6 +128,57 @@ class PinLoginSettingPayload(BaseModel):
     password: str
     enabled: bool
     pin: str = ""
+
+
+class OwnerLoginPayload(BaseModel):
+    username: str
+    password: str
+
+
+class OwnerUserStatusPayload(BaseModel):
+    is_active: bool
+
+
+class OwnerLoginResponse(BaseModel):
+    token: str
+    username: str
+    role: str = "owner"
+
+
+def _require_owner(authorization: str | None) -> None:
+    scheme, _, token = str(authorization or "").partition(" ")
+    if scheme.lower() != "bearer" or not verify_owner_token(token.strip()):
+        raise HTTPException(status_code=401, detail="Phiên owner không hợp lệ hoặc đã hết hạn.")
+
+
+def _require_user_session(
+    authorization: str | None,
+    username: str,
+    allowed_roles: set[str] | None = None,
+):
+    scheme, _, token = str(authorization or "").partition(" ")
+    if scheme.lower() != "bearer" or not verify_user_token(token.strip(), username):
+        raise HTTPException(status_code=401, detail="Vui lòng đăng nhập lại để tiếp tục.")
+    user = get_user_by_username(username)
+    if not user or not user.get("is_active", True):
+        raise HTTPException(status_code=403, detail="Tài khoản đã bị khóa hoặc không còn hoạt động.")
+    if allowed_roles and user.get("role") not in allowed_roles:
+        raise HTTPException(status_code=403, detail="Không có quyền thực hiện thao tác này.")
+    return user
+
+
+def _record_feature_success(username: str | None, token: str | None, feature: str) -> None:
+    clean_username = str(username or "").strip()
+    if not clean_username:
+        return
+    user = get_user_by_username(clean_username)
+    if (
+        user
+        and user.get("is_active", True)
+        and user.get("role") in {"student", "parent"}
+        and verify_user_token(str(token or ""), clean_username, str(user.get("role")))
+    ):
+        record_successful_feature_use(clean_username, feature)
 
 
 def _build_student_alerts(student_name: str, score: int, tasks: list[dict]) -> list[dict]:
@@ -296,6 +355,52 @@ async def parent_dashboard_page(request: Request):
     return templates.TemplateResponse(request=request, name="parent_dashboard.html")
 
 
+@app.get("/owner")
+async def owner_dashboard_page(request: Request):
+    return templates.TemplateResponse(request=request, name="owner.html")
+
+
+@app.post("/api/owner/login", response_model=OwnerLoginResponse)
+def owner_login(payload: OwnerLoginPayload):
+    if not authenticate_owner(payload.username, payload.password):
+        raise HTTPException(status_code=401, detail="Thông tin đăng nhập owner không đúng.")
+    try:
+        token = create_owner_token()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"token": token, "username": payload.username.strip(), "role": "owner"}
+
+
+@app.get("/api/owner/overview")
+def owner_overview(authorization: str | None = Header(default=None)):
+    _require_owner(authorization)
+    try:
+        return get_owner_overview()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail="Không đọc được dữ liệu thống kê owner.") from exc
+
+
+@app.get("/api/owner/users")
+def owner_users(authorization: str | None = Header(default=None)):
+    _require_owner(authorization)
+    try:
+        return {"users": list_managed_users()}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail="Không đọc được danh sách người dùng.") from exc
+
+
+@app.patch("/api/owner/users/{user_id}/status")
+def owner_set_user_status(
+    user_id: str,
+    payload: OwnerUserStatusPayload,
+    authorization: str | None = Header(default=None),
+):
+    _require_owner(authorization)
+    if not set_managed_user_active(user_id, payload.is_active):
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
+    return {"message": "Đã cập nhật trạng thái tài khoản."}
+
+
 @app.post("/api/auth/login")
 def login(payload: AuthPayload):
     user = authenticate_user(payload.username, payload.password)
@@ -306,6 +411,10 @@ def login(payload: AuthPayload):
             return {"requires_pin": True, "message": "Nhập mã PIN để tiếp tục đăng nhập."}
         if not verify_secondary_pin(payload.username, payload.pin):
             raise HTTPException(status_code=401, detail="Mã PIN không đúng.")
+    try:
+        session_token = create_user_token(str(user.get("username", "")), str(user.get("role", "student")))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Chưa cấu hình khóa phiên đăng nhập an toàn.") from exc
 
     sanitized = {
         "id": user.get("id"),
@@ -319,11 +428,13 @@ def login(payload: AuthPayload):
         "is_active": user.get("is_active", True),
         "pin_login_enabled": bool(user.get("pin_login_enabled", False)),
     }
-    return {"message": "Đăng nhập thành công.", "user": sanitized}
+    return {"message": "Đăng nhập thành công.", "user": sanitized, "token": session_token}
 
 
 @app.post("/api/auth/register")
 def register(payload: AuthPayload):
+    if payload.role.strip().lower() not in {"student", "parent"}:
+        raise HTTPException(status_code=400, detail="Chỉ được đăng ký tài khoản học sinh hoặc phụ huynh.")
     if payload.role.strip().lower() == "student" and not (payload.full_name or "").strip():
         raise HTTPException(status_code=400, detail="Họ tên không được để trống.")
 
@@ -354,9 +465,9 @@ def register(payload: AuthPayload):
 
 
 @app.get("/api/dashboard/student")
-def student_dashboard(username: str = Query(...)):
-    user = get_user_by_username(username)
-    if not user or user.get("role") != "student":
+def student_dashboard(username: str = Query(...), authorization: str | None = Header(default=None)):
+    user = _require_user_session(authorization, username, {"student"})
+    if not user or user.get("role") != "student" or not user.get("is_active", True):
         raise HTTPException(status_code=404, detail="Không tìm thấy học sinh.")
 
     study = StudyBus()
@@ -389,15 +500,16 @@ def student_dashboard(username: str = Query(...)):
 
 
 @app.get("/api/notifications")
-def notifications(username: str = Query(...)):
-    user = get_user_by_username(username)
-    if not user:
+def notifications(username: str = Query(...), authorization: str | None = Header(default=None)):
+    user = _require_user_session(authorization, username)
+    if not user or not user.get("is_active", True):
         raise HTTPException(status_code=404, detail="Không tìm thấy người dùng.")
     return {"notifications": _notifications_for_user(username)}
 
 
 @app.post("/api/security/pin")
-def setup_secondary_pin(payload: SecondaryPinSetupPayload):
+def setup_secondary_pin(payload: SecondaryPinSetupPayload, authorization: str | None = Header(default=None)):
+    _require_user_session(authorization, payload.username)
     try:
         set_secondary_pin(payload.username, payload.password, payload.pin)
     except ValueError as exc:
@@ -406,7 +518,8 @@ def setup_secondary_pin(payload: SecondaryPinSetupPayload):
 
 
 @app.post("/api/security/pin-login")
-def update_pin_login_setting(payload: PinLoginSettingPayload):
+def update_pin_login_setting(payload: PinLoginSettingPayload, authorization: str | None = Header(default=None)):
+    _require_user_session(authorization, payload.username)
     try:
         set_pin_login_enabled(payload.username, payload.password, payload.enabled, payload.pin)
     except ValueError as exc:
@@ -415,9 +528,9 @@ def update_pin_login_setting(payload: PinLoginSettingPayload):
 
 
 @app.get("/api/dashboard/parent")
-def parent_dashboard(username: str = Query(...)):
-    parent = get_user_by_username(username)
-    if not parent or parent.get("role") != "parent":
+def parent_dashboard(username: str = Query(...), authorization: str | None = Header(default=None)):
+    parent = _require_user_session(authorization, username, {"parent"})
+    if not parent or parent.get("role") != "parent" or not parent.get("is_active", True):
         raise HTTPException(status_code=404, detail="Không tìm thấy phụ huynh.")
 
     students = get_students_for_parent(username)
@@ -478,13 +591,15 @@ def parent_dashboard(username: str = Query(...)):
 
 
 @app.put("/api/schedule/slot")
-def update_schedule_slot(payload: ScheduleSlotPayload):
+def update_schedule_slot(payload: ScheduleSlotPayload, authorization: str | None = Header(default=None)):
+    _require_user_session(authorization, payload.username or "", {"student"})
     try:
         item = StudyBus().upsert_schedule_slot(
             payload.session, payload.day, payload.period, payload.subject, payload.lecturer
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _record_feature_success(payload.username, authorization.partition(" ")[2] if authorization else None, "schedule")
     if payload.username:
         send_web_push_to_user(
             payload.username,
@@ -503,7 +618,11 @@ def update_schedule_slot(payload: ScheduleSlotPayload):
 
 
 @app.post("/api/schedule/slots")
-def bulk_update_schedule_slots(payload: ScheduleSlotBulkPayload):
+def bulk_update_schedule_slots(payload: ScheduleSlotBulkPayload, authorization: str | None = Header(default=None)):
+    username = payload.slots[0].username if payload.slots else ""
+    _require_user_session(authorization, username or "", {"student"})
+    if any(item.username != username for item in payload.slots):
+        raise HTTPException(status_code=400, detail="Các tiết trong một lần lưu phải cùng tài khoản.")
     try:
         slots = [
             {
@@ -518,6 +637,12 @@ def bulk_update_schedule_slots(payload: ScheduleSlotBulkPayload):
         saved = StudyBus().upsert_schedule_slots(slots)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if saved:
+        _record_feature_success(
+            payload.slots[0].username if payload.slots else None,
+            authorization.partition(" ")[2] if authorization else None,
+            "schedule",
+        )
     if payload.slots and payload.slots[0].username:
         send_web_push_to_user(
             payload.slots[0].username,
@@ -536,10 +661,12 @@ def bulk_update_schedule_slots(payload: ScheduleSlotBulkPayload):
 
 
 @app.delete("/api/schedule/slot")
-def delete_schedule_slot(payload: ScheduleSlotDeletePayload):
+def delete_schedule_slot(payload: ScheduleSlotDeletePayload, authorization: str | None = Header(default=None)):
+    _require_user_session(authorization, payload.username or "", {"student"})
     deleted = StudyBus().delete_schedule_slot(payload.session, payload.day, payload.period)
     if not deleted:
         raise HTTPException(status_code=404, detail="Không tìm thấy tiết học.")
+    _record_feature_success(payload.username, authorization.partition(" ")[2] if authorization else None, "schedule")
     if payload.username:
         send_web_push_to_user(
             payload.username,
@@ -551,13 +678,15 @@ def delete_schedule_slot(payload: ScheduleSlotDeletePayload):
 
 
 @app.post("/api/assignments")
-def create_assignment(payload: AssignmentPayload):
+def create_assignment(payload: AssignmentPayload, authorization: str | None = Header(default=None)):
+    _require_user_session(authorization, payload.username or "", {"student"})
     try:
         item = StudyBus().add_assignment(
             payload.title, payload.subject, payload.due_date, payload.priority
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _record_feature_success(payload.username, authorization.partition(" ")[2] if authorization else None, "assignments")
     if payload.username:
         send_web_push_to_user(
             payload.username,
@@ -569,10 +698,12 @@ def create_assignment(payload: AssignmentPayload):
 
 
 @app.patch("/api/assignments/{assignment_id}")
-def update_assignment(assignment_id: str, payload: AssignmentCompletionPayload):
+def update_assignment(assignment_id: str, payload: AssignmentCompletionPayload, authorization: str | None = Header(default=None)):
+    _require_user_session(authorization, payload.username or "", {"student"})
     study = StudyBus()
     if not study.set_completed(assignment_id, payload.completed):
         raise HTTPException(status_code=404, detail="Không tìm thấy nhiệm vụ.")
+    _record_feature_success(payload.username, authorization.partition(" ")[2] if authorization else None, "assignments")
     if payload.username and payload.completed:
         task = next((item for item in study.assignments() if item.get("id") == assignment_id), None)
         title = str(task.get("title", "nhiệm vụ")) if task else "nhiệm vụ"
@@ -592,18 +723,22 @@ def update_assignment(assignment_id: str, payload: AssignmentCompletionPayload):
 
 
 @app.delete("/api/assignments/{assignment_id}")
-def delete_assignment(assignment_id: str):
+def delete_assignment(assignment_id: str, username: str = Query(...), authorization: str | None = Header(default=None)):
+    _require_user_session(authorization, username, {"student"})
     if not StudyBus().delete_assignment(assignment_id):
         raise HTTPException(status_code=404, detail="Không tìm thấy nhiệm vụ.")
+    _record_feature_success(username, authorization.partition(" ")[2] if authorization else None, "assignments")
     return {"message": "Đã xóa nhiệm vụ."}
 
 
 @app.post("/api/parent/link-student")
-def link_student(payload: ParentLinkPayload):
+def link_student(payload: ParentLinkPayload, authorization: str | None = Header(default=None)):
+    _require_user_session(authorization, payload.parent_username, {"parent"})
     try:
         request = create_parent_link_request(payload.parent_username, payload.student_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _record_feature_success(payload.parent_username, authorization.partition(" ")[2] if authorization else None, "parent_link")
     return {
         "message": "Đã gửi yêu cầu liên kết. Học sinh cần xác nhận trong hộp thư.",
         "request": request,
@@ -611,16 +746,16 @@ def link_student(payload: ParentLinkPayload):
 
 
 @app.get("/api/student/link-requests")
-def student_link_requests(username: str = Query(...)):
-    student = get_user_by_username(username)
+def student_link_requests(username: str = Query(...), authorization: str | None = Header(default=None)):
+    student = _require_user_session(authorization, username, {"student"})
     if not student or student.get("role") != "student":
         raise HTTPException(status_code=404, detail="Không tìm thấy học sinh.")
     return {"requests": get_link_requests_for_student(username)}
 
 
 @app.post("/api/student/link-requests/respond")
-def respond_link_request(payload: LinkRequestResponsePayload):
-    student = get_user_by_username(payload.student_username)
+def respond_link_request(payload: LinkRequestResponsePayload, authorization: str | None = Header(default=None)):
+    student = _require_user_session(authorization, payload.student_username, {"student"})
     if not student or student.get("role") != "student":
         raise HTTPException(status_code=404, detail="Không tìm thấy học sinh.")
     try:
@@ -629,6 +764,8 @@ def respond_link_request(payload: LinkRequestResponsePayload):
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if payload.accept:
+        _record_feature_success(payload.student_username, authorization.partition(" ")[2] if authorization else None, "parent_link")
     return {
         "message": "Đã xác nhận liên kết phụ huynh." if payload.accept else "Đã từ chối yêu cầu liên kết.",
         "request": request,
@@ -636,7 +773,8 @@ def respond_link_request(payload: LinkRequestResponsePayload):
 
 
 @app.patch("/api/parent/student")
-def update_parent_student(payload: StudentProfilePayload):
+def update_parent_student(payload: StudentProfilePayload, authorization: str | None = Header(default=None)):
+    _require_user_session(authorization, payload.parent_username, {"parent"})
     parent = get_user_by_username(payload.parent_username)
     if not parent or parent.get("role") != "parent":
         raise HTTPException(status_code=404, detail="Không tìm thấy phụ huynh.")

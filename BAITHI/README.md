@@ -93,3 +93,13 @@ Sau khi bật push trên máy tính, trình duyệt đăng ký service worker v�
 3. Đặt biến môi trường `STUDYSYNC_DATA_DIR=/var/data/studysync` và đưa bản sao lưu vào thư mục `studysync` trên disk trước khi chạy bản mới.
 
 Khi thư mục persistent mới chưa có một file nhưng file cũ còn trong `BAITHI/data`, ứng dụng sẽ di trú file đó một lần và không ghi đè file đã có trên disk. Nếu hosting đã xóa filesystem cũ trước khi sao lưu, ứng dụng không thể khôi phục dữ liệu đã mất. Tệp JSON lỗi sẽ báo lỗi thay vì bị coi là danh sách rỗng. Đăng xuất không xóa tài khoản. Persistent disk bảo vệ qua deploy/restart; nếu xóa disk hoặc reset/xóa dữ liệu trực tiếp trên disk thì dữ liệu không thể tự khôi phục.
+
+### Tài khoản quản trị owner
+
+Owner đăng nhập tại `/owner`, không tạo qua form đăng ký và không lưu chung với tài khoản học sinh/phụ huynh. Cấu hình các biến sau trong Render Environment; không commit mật khẩu hoặc secret:
+
+- `OWNER_USERNAME`: tên đăng nhập quản trị riêng.
+- `OWNER_PASSWORD`: mật khẩu mạnh, tối thiểu 12 ký tự.
+- `STUDYSYNC_SESSION_SECRET`: chuỗi ngẫu nhiên tối thiểu 32 ký tự dùng ký token phiên user và owner.
+
+Nếu chưa có biến `STUDYSYNC_SESSION_SECRET`, ứng dụng tạo khóa ở `session_signing_secret.json` trong thư mục dữ liệu. Vì vậy cần cấu hình Persistent Disk và `STUDYSYNC_DATA_DIR` trước khi dùng owner trên hosting. Owner có thể xem thống kê thao tác tính năng thành công và quản lý trạng thái tài khoản; danh sách không trả về mật khẩu.

@@ -130,10 +130,13 @@ def test_pin_login_and_schedule_without_pin(tmp_path, monkeypatch):
     monkeypatch.setattr("auth_service.USERS_FILE", tmp_path / "users.json")
     register_user("student01", "Abc12345", "student", "Học sinh A")
     client = TestClient(app)
+    login = client.post("/api/auth/login", json={"username": "student01", "password": "Abc12345"})
+    assert login.status_code == 200
+    session_headers = {"Authorization": f"Bearer {login.json()['token']}"}
 
     setup = client.post("/api/security/pin", json={
         "username": "student01", "password": "Abc12345", "pin": "4826",
-    })
+    }, headers=session_headers)
     assert setup.status_code == 200
     login_without_pin = client.post("/api/auth/login", json={"username": "student01", "password": "Abc12345"})
     assert login_without_pin.status_code == 200
@@ -145,21 +148,26 @@ def test_pin_login_and_schedule_without_pin(tmp_path, monkeypatch):
 
     wrong_pin_disable = client.post("/api/security/pin-login", json={
         "username": "student01", "password": "Abc12345", "pin": "4827", "enabled": False,
-    })
+    }, headers=session_headers)
     assert wrong_pin_disable.status_code == 400
     assert client.post("/api/auth/login", json={"username": "student01", "password": "Abc12345"}).json()["requires_pin"]
 
     disabled = client.post("/api/security/pin-login", json={
         "username": "student01", "password": "Abc12345", "pin": "4826", "enabled": False,
-    })
+    }, headers=session_headers)
     assert disabled.status_code == 200
     assert client.post("/api/auth/login", json={"username": "student01", "password": "Abc12345"}).json().get("user")
 
     schedule = client.put("/api/schedule/slot", json={
         "session": "night", "day": "2", "period": 1, "subject": "Toán", "lecturer": "",
-    })
+        "username": "student01",
+    }, headers=session_headers)
     assert schedule.status_code == 400
-    deletion = client.request("DELETE", "/api/schedule/slot", json={"session": "morning", "day": "2", "period": 99})
+    deletion = client.request(
+        "DELETE", "/api/schedule/slot?username=student01",
+        json={"session": "morning", "day": "2", "period": 99, "username": "student01"},
+        headers=session_headers,
+    )
     assert deletion.status_code == 404
 
 

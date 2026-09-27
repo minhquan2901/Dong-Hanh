@@ -260,6 +260,7 @@
               return;
             }
             localStorage.setItem('study_sync_user', JSON.stringify(result.user));
+            localStorage.setItem('study_sync_session_token', result.token);
             showMessage('Đăng nhập thành công. Đang chuyển hướng...', 'success');
             setTimeout(() => {
               window.location.href = result.user.role === 'parent' ? '/parent' : '/student';
@@ -267,6 +268,7 @@
             return;
           }
 
+          localStorage.removeItem('study_sync_session_token');
           showMessage(result.message || 'Tạo tài khoản thành công.', 'success');
           setMode('login');
         } catch (error) {
