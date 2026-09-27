@@ -159,9 +159,59 @@
       .pin-setting-field { display: grid; gap: 5px; color: var(--muted); font-size: .8rem; font-weight: 700; }
       .pin-setting-field input { width: 100%; min-height: 40px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--card); color: var(--text); }
       .controls button:hover, .add-task-button:hover, .save-button:hover, .copy-code:hover, .security-save:hover { transform: translateY(-2px); background: var(--primary-dark); }
-      @media (max-width: 900px) { .stats { grid-template-columns: repeat(2, minmax(140px,1fr)); } .grid { grid-template-columns: 1fr; } }
-      @media (max-width: 560px) { .stats { grid-template-columns: 1fr; } .topbar { flex-wrap: wrap; gap: 12px; } .hero { flex-direction: column; align-items: flex-start; } .progress-insight { grid-template-columns: 1fr; justify-items: center; } .subject-progress { width: 100%; } }
-      @media (max-width: 700px) { .schedule-editor, .task-editor, .security-form, .pin-login-setting { grid-template-columns: 1fr 1fr; } .task-tools { align-items: stretch; flex-direction: column; } }
+      @media (max-width: 900px) {
+        .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .grid { grid-template-columns: 1fr; }
+        .container { padding-left: 14px; padding-right: 14px; }
+      }
+      @media (max-width: 700px) {
+        .topbar { align-items: flex-start; flex-direction: column; gap: 10px; padding: 12px 14px; }
+        .user-pill { width: 100%; display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 7px; }
+        .user-pill > button { min-height: 42px; padding: 8px 10px; font-size: .78rem; }
+        #theme-toggle { grid-column: 1 / 2; }
+        #web-notification-toggle { grid-column: 2 / 3; }
+        .user-pill .logout { grid-column: 3 / 4; }
+        .container { padding: 14px 12px 28px; }
+        .hero { flex-direction: column; align-items: stretch; padding: 18px; border-radius: 16px; }
+        .hero > div:last-child { justify-content: flex-start !important; }
+        .link-box { min-width: 0; flex: 1 1 100%; justify-content: space-between; }
+        .status { max-width: 100%; font-size: .82rem; padding: 9px 10px; }
+        .taskbar { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; margin-top: 12px; padding: 4px; border-radius: 12px; }
+        .taskbar a { min-width: 0; text-align: center; white-space: normal; padding: 10px 3px; font-size: .75rem; line-height: 1.15; }
+        .view { margin-top: 14px; }
+        .card { padding: 15px; border-radius: 14px; }
+        .stats { gap: 9px; margin-top: 14px; }
+        .value { font-size: 1.55rem; }
+        .progress-insight { grid-template-columns: 1fr; justify-items: center; gap: 16px; margin-top: 14px; }
+        .subject-progress { width: 100%; }
+        .schedule-table-wrap { overflow-x: auto; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; border-radius: 8px; }
+        .schedule-table { min-width: 680px; }
+        .schedule-actions { justify-content: stretch; }
+        .schedule-actions button { width: 100%; min-height: 44px; }
+        .schedule-editor, .task-editor, .security-form, .pin-login-setting { grid-template-columns: minmax(0, 1fr); gap: 11px; padding: 12px; }
+        .schedule-editor label, .security-form label, .pin-setting-field { font-size: .85rem; }
+        .schedule-editor input, .schedule-editor select, .task-editor input, .task-editor select,
+        .security-form input, .pin-setting-field input { min-height: 44px; font-size: 16px; }
+        .schedule-editor .editor-actions { display: grid; grid-template-columns: 1fr 1fr; }
+        .schedule-editor .editor-actions button, .task-editor button, .security-save { min-height: 44px; }
+        .task-tools { align-items: stretch; flex-direction: column; }
+        .task-tools select, .add-task-button { width: 100%; min-height: 44px; }
+        .task-item { flex-direction: column; padding: 13px; }
+        .task-actions { width: 100%; display: grid; grid-template-columns: 1fr 1fr; }
+        .task-action { min-height: 44px; font-size: .82rem; }
+        .pin-login-toggle { white-space: normal; }
+        .pin-login-setting .security-save { width: 100%; }
+        .link-request { align-items: flex-start; flex-direction: column; }
+        .link-request-actions { width: 100%; }
+        .link-request-actions button { min-height: 42px; flex: 1; }
+        .toast-stack { right: 10px; bottom: 10px; width: calc(100vw - 20px); }
+      }
+      @media (max-width: 380px) {
+        .user-pill { grid-template-columns: 34px minmax(0, 1fr) auto; }
+        .user-pill > button { padding: 7px; font-size: .72rem; }
+        .taskbar a { font-size: .68rem; }
+        .stats { grid-template-columns: 1fr 1fr; }
+      }
     </style>
   </head>
   <body>

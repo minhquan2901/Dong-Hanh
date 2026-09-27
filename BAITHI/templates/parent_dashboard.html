@@ -86,10 +86,40 @@
       .pin-login-toggle { display: flex !important; align-items: center; gap: 8px !important; min-height: 40px; color: var(--text) !important; white-space: nowrap; }
       .pin-setting-field { display: grid; gap: 5px; color: var(--muted); font-size: .8rem; font-weight: 700; }
       .pin-setting-field input { width: 100%; min-height: 40px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--card); color: var(--text); }
-      @media (max-width: 900px) { .management { grid-template-columns: 1fr; } }
-      @media (max-width: 900px) { .stats { grid-template-columns: repeat(2, minmax(140px, 1fr)); } .grid, .analytics { grid-template-columns: 1fr; } }
-      @media (max-width: 700px) { .security-form, .pin-login-setting { grid-template-columns: 1fr 1fr; } }
-      @media (max-width: 560px) { .stats { grid-template-columns: 1fr; } .topbar { flex-wrap: wrap; } }
+      @media (max-width: 900px) {
+        .management { grid-template-columns: 1fr; }
+        .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .grid, .analytics { grid-template-columns: 1fr; }
+        .container { padding-left: 14px; padding-right: 14px; }
+      }
+      @media (max-width: 700px) {
+        .topbar { align-items: flex-start; flex-direction: column; gap: 10px; padding: 12px 14px; }
+        .user-box { width: 100%; display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 7px; }
+        .user-box > button { min-height: 42px; padding: 8px 10px; font-size: .78rem; }
+        .user-box #theme-toggle { grid-column: 1 / 2; }
+        .user-box .logout { grid-column: 3 / 4; }
+        .container { padding: 14px 12px 28px; }
+        .hero { padding: 18px; border-radius: 16px; }
+        h1 { font-size: 2rem; line-height: 1.08; }
+        .card, .panel { padding: 15px; border-radius: 14px; }
+        .stats { gap: 9px; margin-top: 14px; }
+        .value { font-size: 1.55rem; }
+        .management, .grid, .analytics { gap: 12px; margin-top: 14px; }
+        .inline-form { flex-direction: column; }
+        .inline-form input, .inline-form button { min-height: 44px; width: 100%; }
+        .managed-student { flex-wrap: wrap; }
+        .managed-student .student-info { min-width: calc(100% - 60px); }
+        .profile-form, .security-form, .pin-login-setting { grid-template-columns: minmax(0, 1fr); gap: 11px; }
+        .profile-form .full { grid-column: auto; }
+        .security-form input, .pin-setting-field input { min-height: 44px; font-size: 16px; }
+        .pin-login-toggle { white-space: normal; }
+        .security-save, .primary-button, .secondary-button { min-height: 44px; }
+        .bar-row { grid-template-columns: minmax(70px, .55fr) 1fr 38px; gap: 8px; }
+      }
+      @media (max-width: 380px) {
+        .stats { grid-template-columns: 1fr 1fr; }
+        .user-box > button { padding: 7px; font-size: .72rem; }
+      }
     </style>
   </head>
   <body>
