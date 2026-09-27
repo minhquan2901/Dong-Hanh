@@ -82,4 +82,14 @@ Khai báo các biến trong môi trường deploy, không commit giá trị bí 
 
 Sau khi bật push trên máy tính, trình duyệt đăng ký service worker và gắn token FCM với tài khoản học sinh. Khi nhiệm vụ được thêm/hoàn thành hoặc thời khóa biểu thay đổi, máy tính đã đăng ký sẽ nhận push. Workflow `.github/workflows/desktop-push-reminders.yml` chạy hằng ngày lúc 21:00 giờ Việt Nam để gửi nhắc các nhiệm vụ đến hạn ngày hôm sau. Thêm repository secrets `PUSH_CRON_URL` (ví dụ `https://dong-hanh.onrender.com`) và `PUSH_CRON_SECRET` trong GitHub để bật lịch này.
 
-Thời khóa biểu, nhiệm vụ, tài khoản và token push hiện lưu trên filesystem/SQLite của dịch vụ. Trên Render, cần gắn persistent disk hoặc chuyển sang database bền vững để dữ liệu không mất khi instance được thay thế.
+### Giữ tài khoản và dữ liệu sau deploy/restart
+
+Ứng dụng lưu tài khoản trong `users.json`, yêu cầu liên kết trong `link_requests.json`, cùng các dữ liệu ứng dụng trong cùng một thư mục. Mặc định thư mục là `BAITHI/data`; có thể đổi bằng biến môi trường `STUDYSYNC_DATA_DIR`.
+
+Để dữ liệu không mất khi Render deploy lại hoặc thay instance:
+
+1. Sao lưu dữ liệu hiện có từ service (đặc biệt `users.json` và `link_requests.json`) trước khi reset/redeploy hoặc thay storage.
+2. Gắn Render Persistent Disk vào service, mount tại `/var/data`.
+3. Đặt biến môi trường `STUDYSYNC_DATA_DIR=/var/data/studysync` và đưa bản sao lưu vào thư mục `studysync` trên disk trước khi chạy bản mới.
+
+Khi thư mục persistent mới chưa có một file nhưng file cũ còn trong `BAITHI/data`, ứng dụng sẽ di trú file đó một lần và không ghi đè file đã có trên disk. Nếu hosting đã xóa filesystem cũ trước khi sao lưu, ứng dụng không thể khôi phục dữ liệu đã mất. Tệp JSON lỗi sẽ báo lỗi thay vì bị coi là danh sách rỗng. Đăng xuất không xóa tài khoản. Persistent disk bảo vệ qua deploy/restart; nếu xóa disk hoặc reset/xóa dữ liệu trực tiếp trên disk thì dữ liệu không thể tự khôi phục.

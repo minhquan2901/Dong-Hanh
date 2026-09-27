@@ -785,16 +785,16 @@
       }
 
       function renderSchedule(schedule) {
-        scheduleData.morning = schedule.filter((lesson) => lesson.session === 'morning');
-        scheduleData.afternoon = schedule.filter((lesson) => lesson.session === 'afternoon');
         const normalized = schedule.map((lesson) => ({
           ...lesson,
           session: lesson.session || 'morning',
           period: Number(lesson.period || 1),
           day: String(lesson.day || '').replace('Thứ ', '').replace('Hai', '2').replace('Ba', '3').replace('Tư', '4').replace('Năm', '5').replace('Sáu', '6').replace('Bảy', '7'),
         }));
-        renderScheduleTable('morning-schedule', normalized.filter((lesson) => lesson.session === 'morning'));
-        renderScheduleTable('afternoon-schedule', normalized.filter((lesson) => lesson.session === 'afternoon'));
+        scheduleData.morning = normalized.filter((lesson) => lesson.session === 'morning');
+        scheduleData.afternoon = normalized.filter((lesson) => lesson.session === 'afternoon');
+        renderScheduleTable('morning-schedule', scheduleData.morning);
+        renderScheduleTable('afternoon-schedule', scheduleData.afternoon);
         document.getElementById('schedule-list').hidden = true;
       }
 
@@ -803,17 +803,14 @@
         const dayNames = { '2': 'THỨ 2', '3': 'THỨ 3', '4': 'THỨ 4', '5': 'THỨ 5', '6': 'THỨ 6', '7': 'THỨ 7' };
         const bySlot = new Map(lessons.map((lesson) => [`${lesson.day}-${lesson.period}`, lesson]));
         const container = document.getElementById(containerId);
-        if (!lessons.length) {
-          container.innerHTML = '<div class="sub">Chưa có lịch học nào được cập nhật.</div>';
-          return;
-        }
-        container.innerHTML = `<table class="schedule-table"><thead><tr><th>Tiết</th>${days.map((day) => `<th>${dayNames[day]}</th>`).join('')}</tr></thead><tbody>${Array.from({ length: 5 }, (_, index) => {
+        const table = `<table class="schedule-table"><thead><tr><th>Tiết</th>${days.map((day) => `<th>${dayNames[day]}</th>`).join('')}</tr></thead><tbody>${Array.from({ length: 5 }, (_, index) => {
           const period = index + 1;
           return `<tr><td class="period">TIẾT ${period}</td>${days.map((day) => {
             const lesson = bySlot.get(`${day}-${period}`);
             return `<td>${lesson ? `<div class="schedule-cell has-lesson"><strong>${lesson.subject}</strong><small>${lesson.lecturer || ''}</small><div class="cell-actions"><button class="cell-action" type="button" onclick="editSlot('${lesson.session}', '${lesson.day}', ${lesson.period})">Sửa</button><button class="cell-action" type="button" onclick="removeSlot('${lesson.session}', '${lesson.day}', ${lesson.period})">Xóa</button></div></div>` : '<div class="schedule-cell">—</div>'}</td>`;
           }).join('')}</tr>`;
         }).join('')}</tbody></table>`;
+        container.innerHTML = table + (lessons.length ? '' : '<p class="sub">Chưa có tiết học trong buổi này.</p>');
       }
 
       function editSlot(session, day, period) {
@@ -947,7 +944,7 @@
         window.location.href = '/login';
       }
 
-      showView(window.location.hash.slice(1) || 'overview', false);
+      showView(window.location.hash.slice(1) || 'schedule', false);
       loadDashboard().catch((error) => {
         overallStatusTextEl.textContent = error.message || 'Không thể tải dữ liệu học tập';
         showWebToast('Không tải được dữ liệu học tập', error.message || 'Hãy tải lại trang hoặc đăng nhập lại.');

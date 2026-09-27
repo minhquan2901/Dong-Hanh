@@ -1,8 +1,13 @@
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
+import shutil
 import socket
+import tempfile
+from threading import RLock
+from urllib.parse import unquote, urlsplit
 import webbrowser
 
 
@@ -10,22 +15,53 @@ PROJECT_DIR = Path(__file__).resolve().parent
 HOST = "0.0.0.0"
 PORT = 8000
 MAX_PORT_ATTEMPTS = 10
-ACCOUNTS_FILE = PROJECT_DIR / "TaiKhoan" / "accounts.json"
-STUDENT_ACCOUNTS_FILE = PROJECT_DIR / "TaiKhoan" / "accounts2.json"
-PARENT_ACCOUNTS_FILE = PROJECT_DIR / "TaiKhoan" / "accounts3.json"
+ACCOUNT_DATA_DIR = Path(
+	os.environ.get("DONGHANH_DATA_DIR", PROJECT_DIR / "TaiKhoan")
+).expanduser()
+ACCOUNTS_FILE = ACCOUNT_DATA_DIR / "accounts.json"
+STUDENT_ACCOUNTS_FILE = ACCOUNT_DATA_DIR / "accounts2.json"
+PARENT_ACCOUNTS_FILE = ACCOUNT_DATA_DIR / "accounts3.json"
+ACCOUNT_LOCK = RLock()
+
+
+def _migrate_legacy_account_file(file_path: Path) -> None:
+	legacy_path = PROJECT_DIR / "TaiKhoan" / file_path.name
+	if file_path == legacy_path or file_path.exists() or not legacy_path.is_file():
+		return
+	file_path.parent.mkdir(parents=True, exist_ok=True)
+	temporary_path = file_path.with_name(f".{file_path.name}.migration.tmp")
+	try:
+		shutil.copy2(legacy_path, temporary_path)
+		os.replace(temporary_path, file_path)
+	finally:
+		temporary_path.unlink(missing_ok=True)
 
 
 def load_accounts(file_path: Path = ACCOUNTS_FILE) -> dict:
+	_migrate_legacy_account_file(file_path)
 	try:
 		with file_path.open("r", encoding="utf-8") as file:
-			return json.load(file)
-	except (OSError, json.JSONDecodeError):
+			data = json.load(file)
+	except FileNotFoundError:
 		return {"accounts": []}
+	except json.JSONDecodeError as exc:
+		raise RuntimeError(f"Tệp tài khoản bị lỗi JSON: {file_path}") from exc
+	if not isinstance(data, dict) or not isinstance(data.get("accounts", []), list):
+		raise RuntimeError(f"Cấu trúc tệp tài khoản không hợp lệ: {file_path}")
+	return data
 
 
 def save_accounts(data: dict, file_path: Path = ACCOUNTS_FILE) -> None:
-	with file_path.open("w", encoding="utf-8") as file:
+	file_path.parent.mkdir(parents=True, exist_ok=True)
+	with tempfile.NamedTemporaryFile(
+		mode="w", encoding="utf-8", dir=file_path.parent,
+		prefix=f".{file_path.name}.", suffix=".tmp", delete=False,
+	) as file:
+		temporary_path = Path(file.name)
 		json.dump(data, file, ensure_ascii=False, indent=2)
+		file.flush()
+		os.fsync(file.fileno())
+	os.replace(temporary_path, file_path)
 
 
 def get_account_file_for_role(role: str) -> Path:
@@ -46,6 +82,13 @@ def find_account_by_username(username: str):
 
 
 class AppRequestHandler(SimpleHTTPRequestHandler):
+	def do_GET(self) -> None:
+		request_path = unquote(urlsplit(self.path).path).replace("\\", "/").lstrip("/").casefold()
+		if request_path == "taikhoan" or request_path.startswith("taikhoan/"):
+			self.send_error(404)
+			return
+		super().do_GET()
+
 	def send_json(self, status: int, payload: dict) -> None:
 		body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
 		self.send_response(status)
@@ -73,7 +116,11 @@ class AppRequestHandler(SimpleHTTPRequestHandler):
 			return
 
 		if self.path == "/api/login":
-			account, _ = find_account_by_username(username)
+			try:
+				account, _ = find_account_by_username(username)
+			except (OSError, RuntimeError):
+				self.send_json(500, {"message": "Không thể đọc dữ liệu tài khoản."})
+				return
 			if not account or account.get("password") != password or not account.get("is_active", False):
 				self.send_json(401, {"message": "Tên đăng nhập hoặc mật khẩu không đúng."})
 				return
@@ -89,20 +136,25 @@ class AppRequestHandler(SimpleHTTPRequestHandler):
 		if role not in ("student", "parent"):
 			role = "student"
 		target_file = get_account_file_for_role(role)
-		account_data = load_accounts(target_file)
-		accounts = account_data.setdefault("accounts", [])
-		if any(item.get("username") == username for item in accounts):
-			self.send_json(409, {"message": "Tên đăng nhập đã tồn tại."})
-			return
+		try:
+			with ACCOUNT_LOCK:
+				if find_account_by_username(username)[0]:
+					self.send_json(409, {"message": "Tên đăng nhập đã tồn tại."})
+					return
 
-		accounts.append({
-			"username": username,
-			"password": password,
-			"display_name": str(data.get("display_name", username)).strip() or username,
-			"role": "user" if role == "student" else "parent",
-			"is_active": True
-		})
-		save_accounts(account_data, target_file)
+				account_data = load_accounts(target_file)
+				accounts = account_data.setdefault("accounts", [])
+				accounts.append({
+					"username": username,
+					"password": password,
+					"display_name": str(data.get("display_name", username)).strip() or username,
+					"role": "user" if role == "student" else "parent",
+					"is_active": True
+				})
+				save_accounts(account_data, target_file)
+		except (OSError, RuntimeError):
+			self.send_json(500, {"message": "Không thể lưu dữ liệu tài khoản."})
+			return
 		self.send_json(201, {"message": "Tạo tài khoản thành công."})
 
 

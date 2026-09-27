@@ -5,6 +5,8 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from data_storage import data_file
 from uuid import uuid4
 
 
@@ -16,9 +18,8 @@ class StudyRepository:
         file_path: str | Path | None = None,
         db_path: str | Path | None = None,
     ) -> None:
-        root = Path(__file__).resolve().parent.parent
-        self.file_path = Path(file_path or root / "data" / "study_data.json")
-        self.db_path = Path(db_path or root / "data" / "studysync.db")
+        self.file_path = Path(file_path) if file_path is not None else data_file("study_data.json")
+        self.db_path = Path(db_path) if db_path is not None else data_file("studysync.db")
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()

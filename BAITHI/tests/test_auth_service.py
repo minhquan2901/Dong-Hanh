@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
+
+import pytest
 
 from auth_service import (
     assign_student_id_to_parent,
@@ -50,6 +53,36 @@ def test_register_duplicate_username_raises(tmp_path, monkeypatch):
         assert False, "Expected ValueError"
     except ValueError:
         pass
+
+
+def test_corrupt_user_file_is_not_treated_as_empty_or_overwritten(tmp_path, monkeypatch):
+    user_file = tmp_path / "users.json"
+    user_file.write_text('{"users": [', encoding="utf-8")
+    monkeypatch.setattr("auth_service.USERS_FILE", user_file)
+
+    with pytest.raises(RuntimeError, match="Không đọc được dữ liệu tài khoản"):
+        register_user("student01", "Pass1234", "student", "Học sinh A")
+
+    assert user_file.read_text(encoding="utf-8") == '{"users": ['
+
+
+def test_concurrent_duplicate_registration_keeps_one_account(tmp_path, monkeypatch):
+    user_file = tmp_path / "users.json"
+    monkeypatch.setattr("auth_service.USERS_FILE", user_file)
+
+    def register():
+        try:
+            register_user("same-user", "Pass1234", "student", "Học sinh")
+            return "created"
+        except ValueError:
+            return "duplicate"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = list(executor.map(lambda _: register(), range(2)))
+
+    persisted = json.loads(user_file.read_text(encoding="utf-8"))
+    assert sorted(outcomes) == ["created", "duplicate"]
+    assert [item["username"] for item in persisted["users"]] == ["same-user"]
 
 
 def test_parent_only_sees_linked_students(tmp_path, monkeypatch):

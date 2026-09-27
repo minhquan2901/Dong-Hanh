@@ -13,16 +13,17 @@ from dotenv import load_dotenv
 from firebase_admin import credentials, messaging
 
 from bus.study_bus import StudyBus
+from data_storage import data_file, write_json_atomic
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
 
-DEVICE_TOKEN_FILE = ROOT / "data" / "device_tokens.json"
-WEB_TOKEN_FILE = ROOT / "data" / "web_tokens.json"
-WEB_PUSH_SUBSCRIPTIONS_FILE = ROOT / "data" / "web_push_subscriptions.json"
-PUSH_REMINDER_STATE_FILE = ROOT / "data" / "push_reminder_state.json"
-MOBILE_TOKEN_FILE = ROOT / "data" / "mobile_tokens.json"
-EMAIL_PREFERENCES_FILE = ROOT / "data" / "email_preferences.json"
+DEVICE_TOKEN_FILE = data_file("device_tokens.json")
+WEB_TOKEN_FILE = data_file("web_tokens.json")
+WEB_PUSH_SUBSCRIPTIONS_FILE = data_file("web_push_subscriptions.json")
+PUSH_REMINDER_STATE_FILE = data_file("push_reminder_state.json")
+MOBILE_TOKEN_FILE = data_file("mobile_tokens.json")
+EMAIL_PREFERENCES_FILE = data_file("email_preferences.json")
 GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "")
 FIREBASE_SERVICE_ACCOUNT_JSON = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "")
 FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", "")
@@ -74,32 +75,37 @@ def firebase_push_ready() -> bool:
 def _ensure_store(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
-        path.write_text("[]", encoding="utf-8")
+        write_json_atomic(path, [])
 
 
 def _read_tokens(path: Path) -> list[str]:
     try:
         tokens = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except FileNotFoundError:
         return []
-    return tokens if isinstance(tokens, list) else []
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Không đọc được dữ liệu token tại {path}.") from exc
+    if not isinstance(tokens, list):
+        raise RuntimeError(f"Dữ liệu token tại {path} không hợp lệ.")
+    return tokens
 
 
 def _write_tokens(path: Path, tokens: list[str]) -> None:
-    path.write_text(json.dumps(tokens, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json_atomic(path, tokens)
 
 
 def _read_json(path: Path, default: Any) -> Any:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except FileNotFoundError:
         return default
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Không đọc được dữ liệu JSON tại {path}.") from exc
     return value if value is not None else default
 
 
 def _write_json(path: Path, value: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json_atomic(path, value)
 
 
 def register_user_web_token(username: str, token: str) -> int:

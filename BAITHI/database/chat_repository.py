@@ -5,13 +5,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from data_storage import data_file
+
 
 class ChatRepository:
     """Lưu và đọc tin nhắn từ file JSON."""
 
     def __init__(self, file_path: str | Path | None = None) -> None:
-        project_root = Path(__file__).resolve().parent.parent
-        self.file_path = Path(file_path or project_root / "data" / "messages.json")
+        self.file_path = Path(file_path) if file_path is not None else data_file("messages.json")
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
         if not self.file_path.exists():
             self._write([])

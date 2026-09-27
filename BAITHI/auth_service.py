@@ -5,75 +5,83 @@ import hashlib
 import hmac
 import secrets
 from datetime import datetime
-from pathlib import Path
+from threading import RLock
 from uuid import uuid4
 from typing import Any
 
-ROOT = Path(__file__).resolve().parent
-USERS_FILE = ROOT / "data" / "users.json"
-LINK_REQUESTS_FILE = ROOT / "data" / "link_requests.json"
+from data_storage import data_file, write_json_atomic
+
+USERS_FILE = data_file("users.json")
+LINK_REQUESTS_FILE = data_file("link_requests.json")
+USERS_LOCK = RLock()
+LINK_REQUESTS_LOCK = RLock()
 
 
 def _ensure_store() -> None:
     USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
     if not USERS_FILE.exists():
-        USERS_FILE.write_text(json.dumps({"users": []}, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_json_atomic(USERS_FILE, {"users": []})
 
 
 def _ensure_link_request_store() -> None:
     LINK_REQUESTS_FILE.parent.mkdir(parents=True, exist_ok=True)
     if not LINK_REQUESTS_FILE.exists():
-        LINK_REQUESTS_FILE.write_text("[]", encoding="utf-8")
+        write_json_atomic(LINK_REQUESTS_FILE, [])
 
 
 def _load_link_requests() -> list[dict[str, Any]]:
     _ensure_link_request_store()
     try:
         requests = json.loads(LINK_REQUESTS_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
-    return requests if isinstance(requests, list) else []
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"Không đọc được dữ liệu liên kết tại {LINK_REQUESTS_FILE}.") from exc
+    if not isinstance(requests, list):
+        raise RuntimeError(f"Dữ liệu liên kết tại {LINK_REQUESTS_FILE} không hợp lệ.")
+    return requests
 
 
 def _save_link_requests(requests: list[dict[str, Any]]) -> None:
     _ensure_link_request_store()
-    LINK_REQUESTS_FILE.write_text(json.dumps(requests, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json_atomic(LINK_REQUESTS_FILE, requests)
 
 
 def load_users() -> list[dict[str, Any]]:
-    _ensure_store()
-    try:
-        data = json.loads(USERS_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
-    users = data.get("users", []) if isinstance(data, dict) else []
-    if not isinstance(users, list):
-        return []
+    with USERS_LOCK:
+        _ensure_store()
+        try:
+            data = json.loads(USERS_FILE.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeError(f"Không đọc được dữ liệu tài khoản tại {USERS_FILE}.") from exc
+        if not isinstance(data, dict):
+            raise RuntimeError(f"Dữ liệu tài khoản tại {USERS_FILE} không hợp lệ.")
+        users = data.get("users", [])
+        if not isinstance(users, list):
+            raise RuntimeError(f"Danh sách tài khoản tại {USERS_FILE} không hợp lệ.")
 
-    used_codes = {
-        str(user.get("student_id", "")).strip().upper()
-        for user in users
-        if user.get("role") == "student" and str(user.get("student_id", "")).strip()
-    }
-    changed = False
-    next_number = 1
-    for user in users:
-        if user.get("role") != "student" or str(user.get("student_id", "")).strip():
-            continue
-        while f"HS-{next_number:03d}" in used_codes:
+        used_codes = {
+            str(user.get("student_id", "")).strip().upper()
+            for user in users
+            if user.get("role") == "student" and str(user.get("student_id", "")).strip()
+        }
+        changed = False
+        next_number = 1
+        for user in users:
+            if user.get("role") != "student" or str(user.get("student_id", "")).strip():
+                continue
+            while f"HS-{next_number:03d}" in used_codes:
+                next_number += 1
+            user["student_id"] = f"HS-{next_number:03d}"
+            used_codes.add(user["student_id"])
             next_number += 1
-        user["student_id"] = f"HS-{next_number:03d}"
-        used_codes.add(user["student_id"])
-        next_number += 1
-        changed = True
-    if changed:
-        save_users(users)
-    return users
+            changed = True
+        if changed:
+            save_users(users)
+        return users
 
 
 def save_users(users: list[dict[str, Any]]) -> None:
     _ensure_store()
-    USERS_FILE.write_text(json.dumps({"users": users}, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json_atomic(USERS_FILE, {"users": users})
 
 
 def get_user_by_username(username: str) -> dict[str, Any] | None:
@@ -129,13 +137,14 @@ def assign_student_to_parent(parent_username: str, student_username: str) -> dic
     if not student or student.get("role") != "student":
         raise ValueError("Tài khoản học sinh không hợp lệ.")
 
-    users = load_users()
-    for item in users:
-        if str(item.get("username", "")).strip().lower() == str(student_username).strip().lower():
-            item["parent_username"] = str(parent_username).strip()
-            item["student_id"] = item.get("student_id") or f"HS-{len(users):04d}"
-            break
-    save_users(users)
+    with USERS_LOCK:
+        users = load_users()
+        for item in users:
+            if str(item.get("username", "")).strip().lower() == str(student_username).strip().lower():
+                item["parent_username"] = str(parent_username).strip()
+                item["student_id"] = item.get("student_id") or f"HS-{len(users):04d}"
+                break
+        save_users(users)
     return student
 
 
@@ -156,28 +165,29 @@ def create_parent_link_request(parent_username: str, student_id: str) -> dict[st
     if str(student.get("parent_username", "")).strip():
         raise ValueError("Học sinh này đã được liên kết với một tài khoản phụ huynh.")
 
-    requests = _load_link_requests()
-    for item in requests:
-        if (
-            item.get("status") == "pending"
-            and str(item.get("parent_username", "")).lower() == parent_username.strip().lower()
-            and str(item.get("student_id", "")).lower() == student_id.strip().lower()
-        ):
-            return item
+    with LINK_REQUESTS_LOCK:
+        requests = _load_link_requests()
+        for item in requests:
+            if (
+                item.get("status") == "pending"
+                and str(item.get("parent_username", "")).lower() == parent_username.strip().lower()
+                and str(item.get("student_id", "")).lower() == student_id.strip().lower()
+            ):
+                return item
 
-    item = {
-        "id": f"link-{uuid4().hex[:12]}",
-        "parent_username": parent_username.strip(),
-        "parent_name": parent.get("full_name") or parent_username.strip(),
-        "student_username": student.get("username", ""),
-        "student_id": student.get("student_id", student_id.strip()),
-        "status": "pending",
-        "created_at": datetime.now().isoformat(timespec="seconds"),
-        "responded_at": "",
-    }
-    requests.append(item)
-    _save_link_requests(requests)
-    return item
+        item = {
+            "id": f"link-{uuid4().hex[:12]}",
+            "parent_username": parent_username.strip(),
+            "parent_name": parent.get("full_name") or parent_username.strip(),
+            "student_username": student.get("username", ""),
+            "student_id": student.get("student_id", student_id.strip()),
+            "status": "pending",
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "responded_at": "",
+        }
+        requests.append(item)
+        _save_link_requests(requests)
+        return item
 
 
 def get_link_requests_for_student(student_username: str) -> list[dict[str, Any]]:
@@ -188,36 +198,38 @@ def get_link_requests_for_student(student_username: str) -> list[dict[str, Any]]
 
 
 def respond_to_parent_link_request(student_username: str, request_id: str, accept: bool) -> dict[str, Any]:
-    requests = _load_link_requests()
-    target = next(
+    with LINK_REQUESTS_LOCK:
+        requests = _load_link_requests()
+        target = next(
         (
             item for item in requests
             if item.get("id") == request_id
             and str(item.get("student_username", "")).lower() == student_username.strip().lower()
             and item.get("status") == "pending"
         ),
-        None,
-    )
-    if not target:
-        raise ValueError("Không tìm thấy yêu cầu liên kết đang chờ xử lý.")
+            None,
+        )
+        if not target:
+            raise ValueError("Không tìm thấy yêu cầu liên kết đang chờ xử lý.")
 
-    if accept:
-        student = get_user_by_username(student_username)
-        if not student:
-            raise ValueError("Không tìm thấy tài khoản học sinh.")
-        if str(student.get("parent_username", "")).strip():
-            raise ValueError("Tài khoản học sinh đã có phụ huynh liên kết.")
-        users = load_users()
-        for user in users:
-            if str(user.get("username", "")).lower() == student_username.strip().lower():
-                user["parent_username"] = target["parent_username"]
-                break
-        save_users(users)
+        if accept:
+            student = get_user_by_username(student_username)
+            if not student:
+                raise ValueError("Không tìm thấy tài khoản học sinh.")
+            if str(student.get("parent_username", "")).strip():
+                raise ValueError("Tài khoản học sinh đã có phụ huynh liên kết.")
+            with USERS_LOCK:
+                users = load_users()
+                for user in users:
+                    if str(user.get("username", "")).lower() == student_username.strip().lower():
+                        user["parent_username"] = target["parent_username"]
+                        break
+                save_users(users)
 
-    target["status"] = "accepted" if accept else "rejected"
-    target["responded_at"] = datetime.now().isoformat(timespec="seconds")
-    _save_link_requests(requests)
-    return target
+        target["status"] = "accepted" if accept else "rejected"
+        target["responded_at"] = datetime.now().isoformat(timespec="seconds")
+        _save_link_requests(requests)
+        return target
 
 
 def update_linked_student(
@@ -231,20 +243,21 @@ def update_linked_student(
     linked = get_students_for_parent(parent_username)
     if not any(str(item.get("student_id", "")).strip().lower() == str(student_id).strip().lower() for item in linked):
         raise ValueError("Học sinh chưa được liên kết với tài khoản phụ huynh này.")
-    users = load_users()
-    for item in users:
-        if str(item.get("student_id", "")).strip().lower() == str(student_id).strip().lower():
-            clean_name = (full_name or "").strip()
-            if not clean_name:
-                raise ValueError("Tên học sinh không được để trống.")
-            item.update({
-                "full_name": clean_name,
-                "class_name": (class_name or "").strip(),
-                "avatar": (avatar or "").strip(),
-                "is_active": bool(is_active),
-            })
-            save_users(users)
-            return item
+    with USERS_LOCK:
+        users = load_users()
+        for item in users:
+            if str(item.get("student_id", "")).strip().lower() == str(student_id).strip().lower():
+                clean_name = (full_name or "").strip()
+                if not clean_name:
+                    raise ValueError("Tên học sinh không được để trống.")
+                item.update({
+                    "full_name": clean_name,
+                    "class_name": (class_name or "").strip(),
+                    "avatar": (avatar or "").strip(),
+                    "is_active": bool(is_active),
+                })
+                save_users(users)
+                return item
     raise ValueError("Không tìm thấy học sinh.")
 
 
@@ -271,29 +284,30 @@ def register_user(
     if clean_role not in {"student", "parent"}:
         clean_role = "student"
 
-    if get_user_by_username(clean_username):
-        raise ValueError("Tên đăng nhập đã tồn tại.")
+    with USERS_LOCK:
+        users = load_users()
+        if any(str(item.get("username", "")).strip().lower() == clean_username.lower() for item in users):
+            raise ValueError("Tên đăng nhập đã tồn tại.")
 
-    users = load_users()
-    if clean_role == "student" and not str(student_id).strip():
-        student_count = sum(1 for item in users if item.get("role") == "student")
-        student_id = f"HS-{student_count + 1:03d}"
-    user = {
-        "id": f"user-{len(users) + 1:04d}",
-        "username": clean_username,
-        "password": clean_password,
-        "role": clean_role,
-        "full_name": clean_full_name or clean_username,
-        "class_name": clean_class,
-        "student_id": student_id,
-        "parent_username": clean_parent_username,
-        "avatar": "",
-        "is_active": True,
-        "pin_login_enabled": False,
-    }
-    users.append(user)
-    save_users(users)
-    return user
+        if clean_role == "student" and not str(student_id).strip():
+            student_count = sum(1 for item in users if item.get("role") == "student")
+            student_id = f"HS-{student_count + 1:03d}"
+        user = {
+            "id": f"user-{uuid4().hex}",
+            "username": clean_username,
+            "password": clean_password,
+            "role": clean_role,
+            "full_name": clean_full_name or clean_username,
+            "class_name": clean_class,
+            "student_id": student_id,
+            "parent_username": clean_parent_username,
+            "avatar": "",
+            "is_active": True,
+            "pin_login_enabled": False,
+        }
+        users.append(user)
+        save_users(users)
+        return user
 
 
 def authenticate_user(username: str, password: str) -> dict[str, Any] | None:
@@ -312,19 +326,20 @@ def set_secondary_pin(username: str, password: str, pin: str) -> bool:
     if not clean_pin.isdigit() or not 4 <= len(clean_pin) <= 8:
         raise ValueError("Mã PIN phải gồm từ 4 đến 8 chữ số.")
 
-    users = load_users()
-    for user in users:
-        if str(user.get("username", "")).strip().lower() != str(username or "").strip().lower():
-            continue
-        if str(user.get("password", "")) != str(password or ""):
-            raise ValueError("Mật khẩu hiện tại không đúng.")
-        salt = secrets.token_bytes(16)
-        pin_hash = hashlib.pbkdf2_hmac("sha256", clean_pin.encode("utf-8"), salt, 200_000)
-        user["secondary_pin_salt"] = salt.hex()
-        user["secondary_pin_hash"] = pin_hash.hex()
-        user["pin_login_enabled"] = True
-        save_users(users)
-        return True
+    with USERS_LOCK:
+        users = load_users()
+        for user in users:
+            if str(user.get("username", "")).strip().lower() != str(username or "").strip().lower():
+                continue
+            if str(user.get("password", "")) != str(password or ""):
+                raise ValueError("Mật khẩu hiện tại không đúng.")
+            salt = secrets.token_bytes(16)
+            pin_hash = hashlib.pbkdf2_hmac("sha256", clean_pin.encode("utf-8"), salt, 200_000)
+            user["secondary_pin_salt"] = salt.hex()
+            user["secondary_pin_hash"] = pin_hash.hex()
+            user["pin_login_enabled"] = True
+            save_users(users)
+            return True
     raise ValueError("Không tìm thấy tài khoản.")
 
 
@@ -344,18 +359,19 @@ def verify_secondary_pin(username: str, pin: str) -> bool:
 
 
 def set_pin_login_enabled(username: str, password: str, enabled: bool, pin: str = "") -> bool:
-    users = load_users()
-    for user in users:
-        if str(user.get("username", "")).strip().lower() != str(username or "").strip().lower():
-            continue
-        if str(user.get("password", "")) != str(password or ""):
-            raise ValueError("Mật khẩu hiện tại không đúng.")
-        has_pin = bool(user.get("secondary_pin_hash") and user.get("secondary_pin_salt"))
-        if enabled and not has_pin:
-            raise ValueError("Hãy đăng ký mã PIN trước khi bật bảo vệ đăng nhập.")
-        if not enabled and has_pin and not verify_secondary_pin(username, pin):
-            raise ValueError("PIN hiện tại không đúng.")
-        user["pin_login_enabled"] = bool(enabled)
-        save_users(users)
-        return True
+    with USERS_LOCK:
+        users = load_users()
+        for user in users:
+            if str(user.get("username", "")).strip().lower() != str(username or "").strip().lower():
+                continue
+            if str(user.get("password", "")) != str(password or ""):
+                raise ValueError("Mật khẩu hiện tại không đúng.")
+            has_pin = bool(user.get("secondary_pin_hash") and user.get("secondary_pin_salt"))
+            if enabled and not has_pin:
+                raise ValueError("Hãy đăng ký mã PIN trước khi bật bảo vệ đăng nhập.")
+            if not enabled and has_pin and not verify_secondary_pin(username, pin):
+                raise ValueError("PIN hiện tại không đúng.")
+            user["pin_login_enabled"] = bool(enabled)
+            save_users(users)
+            return True
     raise ValueError("Không tìm thấy tài khoản.")
