@@ -4,12 +4,12 @@ importScripts('https://www.gstatic.com/firebasejs/12.19.0/firebase-messaging-com
 // Service workers run in the browser, so process.env is unavailable here.
 // Keep the public Firebase web configuration in this file for background push.
 const firebaseConfig = {
-  apiKey: 'AIzaSyA7uKlNdac6bKI2heRww1jUZieKNvw14lM',
-  authDomain: 'baithi-f2647.firebaseapp.com',
-  projectId: 'baithi-f2647',
-  storageBucket: 'baithi-f2647.firebasestorage.app',
-  messagingSenderId: '170056821362',
-  appId: '1:170056821362:web:094ebfa5d599dc2b0f30eb',
+  apiKey: 'AIzaSyD4qCOfTZKQC35UukZFcTbwrXtUEv84GU4',
+  authDomain: 'file-85963.firebaseapp.com',
+  projectId: 'file-85963',
+  storageBucket: 'file-85963.firebasestorage.app',
+  messagingSenderId: '569200800640',
+  appId: '1:569200800640:web:eb5808c9ac673752cb8765',
 };
 
 if (firebaseConfig.apiKey && firebaseConfig.projectId) {

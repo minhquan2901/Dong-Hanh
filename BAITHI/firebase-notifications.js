@@ -8,13 +8,13 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-messaging.js";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyA7uKlNdac6bKI2heRww1jUZieKNvw14lM",
-  authDomain: "baithi-f2647.firebaseapp.com",
-  projectId: "baithi-f2647",
-  storageBucket: "baithi-f2647.firebasestorage.app",
-  messagingSenderId: "170056821362",
-  appId: "1:170056821362:web:094ebfa5d599dc2b0f30eb",
-  measurementId: "G-30CJXLJR9W",
+  apiKey: "AIzaSyD4qCOfTZKQC35UukZFcTbwrXtUEv84GU4",
+  authDomain: "file-85963.firebaseapp.com",
+  projectId: "file-85963",
+  storageBucket: "file-85963.firebasestorage.app",
+  messagingSenderId: "569200800640",
+  appId: "1:569200800640:web:eb5808c9ac673752cb8765",
+  measurementId: "G-EMNVJ7WV74",
 };
 
 const SERVICE_WORKER_PATH = "/firebase-messaging-sw.js";
