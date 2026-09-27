@@ -95,7 +95,7 @@
       .schedule-cell.has-lesson { background: #eef6ff; color: var(--primary-dark, #154ea8); }
       .schedule-cell strong { font-size: .82rem; }
       .schedule-cell small { color: var(--muted); font-size: .68rem; }
-      .schedule-actions { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 14px; }
+      .schedule-actions { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 14px; }
       .edit-button, .save-button, .cancel-button { border: 0; border-radius: 9px; padding: 9px 13px; font-weight: 700; cursor: pointer; }
       .edit-button, .save-button { background: var(--primary); color: #fff; }
       .cancel-button { background: #eef2f7; color: var(--text); }
@@ -186,8 +186,8 @@
         .subject-progress { width: 100%; }
         .schedule-table-wrap { overflow-x: auto; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; border-radius: 8px; }
         .schedule-table { min-width: 680px; }
-        .schedule-actions { justify-content: stretch; }
-        .schedule-actions button { width: 100%; min-height: 44px; }
+        .schedule-actions { justify-content: stretch; flex-wrap: wrap; }
+        .schedule-actions button { flex: 1 1 150px; min-width: 0; min-height: 44px; }
         .schedule-editor, .task-editor, .security-form, .pin-login-setting { grid-template-columns: minmax(0, 1fr); gap: 11px; padding: 12px; }
         .schedule-editor label, .security-form label, .pin-setting-field { font-size: .85rem; }
         .schedule-editor input, .schedule-editor select, .task-editor input, .task-editor select,
@@ -280,6 +280,7 @@
           <h2 class="panel-title">Thời khóa biểu</h2>
           <p class="sub" style="margin-bottom: 16px;">Mỗi ô thể hiện môn học theo thứ và tiết.</p>
           <div class="schedule-actions">
+            <button id="open-bulk-schedule-button" class="edit-button" type="button">Thêm nhiều tiết</button>
             <button id="edit-schedule-button" class="edit-button" type="button">Chỉnh sửa thời khóa biểu</button>
           </div>
           <form id="schedule-editor" class="schedule-editor">
@@ -289,6 +290,10 @@
             <label>Môn học<input id="editor-subject" required placeholder="Ví dụ: Toán"></label>
             <label>Giáo viên<input id="editor-lecturer" placeholder="Ví dụ: T.Thọ"></label>
             <div class="editor-actions"><button class="save-button" type="submit">Lưu tiết</button><button id="cancel-edit" class="cancel-button" type="button">Hủy</button></div>
+          </form>
+          <form id="bulk-schedule-editor" class="schedule-editor" style="margin-top: 12px;">
+            <label style="grid-column: 1 / -1;">Nhập nhiều tiết cùng lúc (mỗi dòng: morning,2,1,Toán,Cô An)<textarea id="bulk-schedule-input" rows="6" placeholder="morning,2,1,Toán,Cô An\nafternoon,3,2,Lý,Thầy Bình\n..." style="width: 100%; min-height: 120px; resize: vertical; border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: #fff;"></textarea></label>
+            <div class="editor-actions" style="grid-column: 1 / -1;"><button class="save-button" type="submit">Thêm nhiều tiết</button><button id="cancel-bulk-edit" class="cancel-button" type="button">Đóng</button></div>
           </form>
           <h3 class="panel-title" style="font-size: 1rem;">Buổi sáng</h3>
           <div id="morning-schedule" class="schedule-table-wrap"></div>
@@ -353,17 +358,44 @@
       const taskbarLinks = document.querySelectorAll('.taskbar a');
       const views = document.querySelectorAll('.view');
       const editor = document.getElementById('schedule-editor');
+      const bulkEditor = document.getElementById('bulk-schedule-editor');
       const editScheduleButton = document.getElementById('edit-schedule-button');
+      const openBulkScheduleButton = document.getElementById('open-bulk-schedule-button');
       const scheduleData = { morning: [], afternoon: [] };
       let assignmentsData = [];
       let taskFilter = 'all';
       const themeKey = `studysync-theme-${user.username}`;
       const dismissedStatusKey = `studysync-status-hidden-${user.username}`;
       const dismissedNotificationsKey = `studysync-notifications-hidden-${user.username}`;
+      const studentStateKey = `study_sync_student_state_${user.username}`;
       const themeToggle = document.getElementById('theme-toggle');
       const webNotificationToggle = document.getElementById('web-notification-toggle');
       const toastStack = document.getElementById('toast-stack');
       const seenAlertsKey = `studysync-seen-alerts-${user.username}`;
+
+      function readStudentPersistedState() {
+        try {
+          const raw = localStorage.getItem(studentStateKey);
+          if (!raw) return { schedule: [], assignments: [] };
+          const parsed = JSON.parse(raw);
+          return {
+            schedule: Array.isArray(parsed.schedule) ? parsed.schedule : [],
+            assignments: Array.isArray(parsed.assignments) ? parsed.assignments : [],
+          };
+        } catch (error) {
+          return { schedule: [], assignments: [] };
+        }
+      }
+
+      function saveStudentPersistedState(data = {}) {
+        const current = readStudentPersistedState();
+        const next = {
+          schedule: Array.isArray(data.schedule) ? data.schedule : current.schedule,
+          assignments: Array.isArray(data.assignments) ? data.assignments : current.assignments,
+        };
+        localStorage.setItem(studentStateKey, JSON.stringify(next));
+        return next;
+      }
 
       function updateWebNotificationButton() {
         if (webNotificationToggle.hidden) return;
@@ -436,10 +468,67 @@
         editScheduleButton.textContent = open ? 'Đang chỉnh sửa' : 'Chỉnh sửa thời khóa biểu';
       }
 
+      function setBulkScheduleEditor(open) {
+        bulkEditor.classList.toggle('open', open);
+      }
+
       editScheduleButton.addEventListener('click', async () => {
         setScheduleEditor(!editor.classList.contains('open'));
       });
+      openBulkScheduleButton.addEventListener('click', () => {
+        setBulkScheduleEditor(!bulkEditor.classList.contains('open'));
+      });
       document.getElementById('cancel-edit').addEventListener('click', () => setScheduleEditor(false));
+      document.getElementById('cancel-bulk-edit').addEventListener('click', () => setBulkScheduleEditor(false));
+
+      function parseBulkScheduleInput(raw) {
+        const lines = String(raw || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+        const slots = [];
+        for (const line of lines) {
+          const cells = line.split(/[;,|\t]+/).map((cell) => cell.trim()).filter(Boolean);
+          if (cells.length < 4) continue;
+          let session = cells[0].toLowerCase();
+          if (session.startsWith('s')) session = 'morning';
+          else if (session.startsWith('c')) session = 'afternoon';
+          const day = String(cells[1]).replace(/[^0-9]/g, '');
+          const period = Number(String(cells[2]).replace(/[^0-9]/g, ''));
+          const subject = cells[3];
+          const lecturer = cells[4] || '';
+          if (!['morning', 'afternoon'].includes(session) || !['2', '3', '4', '5', '6', '7'].includes(day) || Number.isNaN(period) || period < 1 || period > 5 || !subject) {
+            throw new Error(`Dòng không hợp lệ: "${line}". Định dạng đúng: morning,2,1,Toán,Cô An`);
+          }
+          slots.push({ session, day, period, subject, lecturer });
+        }
+        if (!slots.length) {
+          throw new Error('Bạn chưa nhập bất kỳ tiết nào hợp lệ.');
+        }
+        return slots;
+      }
+
+      bulkEditor.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        try {
+          const slots = parseBulkScheduleInput(document.getElementById('bulk-schedule-input').value);
+          const response = await fetch('/api/schedule/slots', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ slots: slots.map((slot) => ({ ...slot, username: user.username })) }),
+          });
+          const result = await response.json();
+          if (!response.ok) {
+            showWebToast('Không thể lưu nhiều tiết', result.detail || 'Vui lòng kiểm tra định dạng dữ liệu.');
+            return;
+          }
+          setBulkScheduleEditor(false);
+          event.target.reset();
+          showWebToast(result.notification?.title || 'Đã lưu nhiều tiết', result.notification?.message || result.message);
+          await loadDashboard();
+          showView('schedule');
+        } catch (error) {
+          showWebToast('Dữ liệu không hợp lệ', error.message || 'Vui lòng kiểm tra định dạng dòng nhập.');
+        }
+      });
+
       editor.addEventListener('submit', async (event) => {
         event.preventDefault();
         const payload = {
@@ -453,6 +542,11 @@
         const response = await fetch('/api/schedule/slot', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         const result = await response.json();
         if (!response.ok) { showWebToast('Không thể cập nhật lịch', result.detail || 'Vui lòng thử lại.'); return; }
+        const nextSchedule = Array.isArray(assignmentsData) ? readStudentPersistedState().schedule : readStudentPersistedState().schedule;
+        saveStudentPersistedState({
+          schedule: [...readStudentPersistedState().schedule, { ...payload, id: `${payload.session}-${payload.day}-${payload.period}` }],
+          assignments: assignmentsData,
+        });
         showWebToast(result.notification?.title || 'Đã cập nhật thời khóa biểu', result.notification?.message || result.message);
         setScheduleEditor(false);
         await loadDashboard();
@@ -478,6 +572,14 @@
         const response = await fetch('/api/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         const result = await response.json();
         if (!response.ok) { showWebToast('Không thể thêm nhiệm vụ', result.detail || 'Vui lòng thử lại.'); return; }
+        const existing = readStudentPersistedState();
+        saveStudentPersistedState({
+          schedule: existing.schedule,
+          assignments: [
+            ...(Array.isArray(existing.assignments) ? existing.assignments : []),
+            { ...result.assignment, completed: false },
+          ],
+        });
         showWebToast('Đã thêm nhiệm vụ', `Nhiệm vụ "${payload.title}" đã được lưu.`);
         event.target.reset();
         event.target.classList.remove('open');
@@ -523,24 +625,51 @@
       });
 
       async function loadDashboard() {
-        const response = await fetch(`/api/dashboard/student?username=${encodeURIComponent(user.username)}`);
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          if (response.status === 404) {
-            throw new Error('Tài khoản trong phiên này không còn trên máy chủ. Hãy đăng xuất rồi đăng nhập bằng tài khoản đã đăng ký trên website.');
+        try {
+          const response = await fetch(`/api/dashboard/student?username=${encodeURIComponent(user.username)}`);
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            if (response.status === 404) {
+              throw new Error('Tài khoản trong phiên này không còn trên máy chủ. Hãy đăng xuất rồi đăng nhập bằng tài khoản đã đăng ký trên website.');
+            }
+            throw new Error(data.detail || `Không tải được dữ liệu (HTTP ${response.status}).`);
           }
-          throw new Error(data.detail || `Không tải được dữ liệu (HTTP ${response.status}).`);
+
+          const nextState = saveStudentPersistedState({
+            schedule: Array.isArray(data.schedule) ? data.schedule : [],
+            assignments: Array.isArray(data.assignments) ? data.assignments : [],
+          });
+          assignmentsData = nextState.assignments;
+          renderNotifications(data.alerts || []);
+          notifyNewAlerts(data.alerts || []);
+          await loadLinkInbox();
+          renderStats(data.stats);
+          renderSchedule(nextState.schedule);
+          renderTasks(nextState.assignments);
+          if (data.stats.completion_rate >= 80) overallStatusTextEl.textContent = 'Tốt: tiến độ học tập đang ổn định';
+          else if (data.stats.completion_rate >= 50) overallStatusTextEl.textContent = 'Cần chú ý: nên hoàn thành thêm 1–2 nhiệm vụ để duy trì tiến độ';
+          else overallStatusTextEl.textContent = 'Nhắc nhở: hãy bắt đầu sớm các nhiệm vụ còn lại để không bị chậm';
+          return;
+        } catch (error) {
+          const persisted = readStudentPersistedState();
+          if (persisted.schedule.length || persisted.assignments.length) {
+            assignmentsData = persisted.assignments;
+            renderNotifications([]);
+            renderStats({
+              total: persisted.assignments.length,
+              completed: persisted.assignments.filter((task) => task.completed).length,
+              pending: persisted.assignments.filter((task) => !task.completed).length,
+              completion_rate: persisted.assignments.length
+                ? Math.round((persisted.assignments.filter((task) => task.completed).length / persisted.assignments.length) * 100)
+                : 0,
+            });
+            renderSchedule(persisted.schedule);
+            renderTasks(persisted.assignments);
+            showWebToast('Dữ liệu đã được lưu cục bộ', 'Hiện đang hiển thị bản sao dữ liệu đã lưu trên trình duyệt.');
+            return;
+          }
+          throw error;
         }
-        assignmentsData = data.assignments;
-        renderNotifications(data.alerts || []);
-        notifyNewAlerts(data.alerts || []);
-        await loadLinkInbox();
-        renderStats(data.stats);
-        renderSchedule(data.schedule);
-        renderTasks(data.assignments);
-        if (data.stats.completion_rate >= 80) overallStatusTextEl.textContent = 'Tốt: tiến độ học tập đang ổn định';
-        else if (data.stats.completion_rate >= 50) overallStatusTextEl.textContent = 'Cần chú ý: nên hoàn thành thêm 1–2 nhiệm vụ để duy trì tiến độ';
-        else overallStatusTextEl.textContent = 'Nhắc nhở: hãy bắt đầu sớm các nhiệm vụ còn lại để không bị chậm';
       }
 
       async function loadLinkInbox() {
@@ -716,6 +845,12 @@
         const response = await fetch(`/api/assignments/${encodeURIComponent(taskId)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ completed, username: user.username }) });
         const result = await response.json();
         if (!response.ok) { showWebToast('Không thể cập nhật nhiệm vụ', result.detail || 'Vui lòng thử lại.'); return; }
+        const existing = readStudentPersistedState();
+        const updatedAssignments = (existing.assignments || []).map((task) => task.id === taskId ? { ...task, completed } : task);
+        saveStudentPersistedState({
+          schedule: existing.schedule,
+          assignments: updatedAssignments,
+        });
         showWebToast(result.notification?.title || 'Đã cập nhật nhiệm vụ', result.notification?.message || result.message);
         await loadDashboard();
         showView('assignments');
@@ -725,6 +860,11 @@
         if (!confirm('Xóa nhiệm vụ này?')) return;
         const response = await fetch(`/api/assignments/${encodeURIComponent(taskId)}`, { method: 'DELETE' });
         if (!response.ok) { alert('Không thể xóa nhiệm vụ.'); return; }
+        const existing = readStudentPersistedState();
+        saveStudentPersistedState({
+          schedule: existing.schedule,
+          assignments: (existing.assignments || []).filter((task) => task.id !== taskId),
+        });
         await loadDashboard();
         showView('assignments');
       }

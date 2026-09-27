@@ -29,6 +29,18 @@ class StudyBus:
             session, day, period, subject.strip(), lecturer.strip()
         )
 
+    def upsert_schedule_slots(self, slots: list[dict[str, str | int]]) -> list[dict[str, str | int]]:
+        normalized = []
+        for slot in slots:
+            normalized.append({
+                "session": str(slot.get("session", "morning")).strip(),
+                "day": str(slot.get("day", "2")).strip(),
+                "period": int(slot.get("period", 1)),
+                "subject": str(slot.get("subject", "")).strip(),
+                "lecturer": str(slot.get("lecturer", "")).strip(),
+            })
+        return self.repository.upsert_schedule_slots(normalized)
+
     def delete_schedule_slot(self, session: str, day: str, period: int) -> bool:
         return self.repository.delete_schedule_slot(session, day, period)
 

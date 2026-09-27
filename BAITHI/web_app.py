@@ -87,6 +87,10 @@ class ScheduleSlotDeletePayload(BaseModel):
     username: str | None = None
 
 
+class ScheduleSlotBulkPayload(BaseModel):
+    slots: list[ScheduleSlotPayload]
+
+
 class AssignmentPayload(BaseModel):
     title: str
     subject: str
@@ -495,6 +499,39 @@ def update_schedule_slot(payload: ScheduleSlotPayload):
             "message": f"Đã lưu {item.get('subject', 'tiết học')} vào thứ {payload.day}, tiết {payload.period}.",
         },
         "schedule": item,
+    }
+
+
+@app.post("/api/schedule/slots")
+def bulk_update_schedule_slots(payload: ScheduleSlotBulkPayload):
+    try:
+        slots = [
+            {
+                "session": item.session,
+                "day": item.day,
+                "period": item.period,
+                "subject": item.subject,
+                "lecturer": item.lecturer,
+            }
+            for item in payload.slots
+        ]
+        saved = StudyBus().upsert_schedule_slots(slots)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if payload.slots and payload.slots[0].username:
+        send_web_push_to_user(
+            payload.slots[0].username,
+            "Đã cập nhật thời khóa biểu",
+            f"Đã lưu {len(saved)} tiết học vào thời khóa biểu.",
+            "/student#schedule",
+        )
+    return {
+        "message": f"Đã lưu {len(saved)} tiết học.",
+        "schedule": saved,
+        "notification": {
+            "title": "Đã cập nhật thời khóa biểu",
+            "message": f"Đã lưu {len(saved)} tiết học vào thời khóa biểu.",
+        },
     }
 
 

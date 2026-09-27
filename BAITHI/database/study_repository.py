@@ -5,6 +5,7 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 
 class StudyRepository:
@@ -106,6 +107,9 @@ class StudyRepository:
                     },
                 )
 
+    def _new_schedule_id(self) -> str:
+        return f"lesson-{uuid4().hex}"
+
     def _read(self) -> dict[str, list[dict[str, Any]]]:
         try:
             data = json.loads(self.file_path.read_text(encoding="utf-8"))
@@ -138,38 +142,70 @@ class StudyRepository:
         subject: str,
         lecturer: str,
     ) -> dict[str, Any]:
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM schedule WHERE session=? AND day=? AND period=?",
-                (session, str(day), int(period)),
-            ).fetchone()
-            if row:
-                conn.execute(
-                    "UPDATE schedule SET subject=?, lecturer=? WHERE id=?",
-                    (subject, lecturer, row["id"]),
-                )
-                conn.commit()
-                item = dict(row)
-                item.update({"subject": subject, "lecturer": lecturer})
-                return item
-
-            item = {
-                "id": datetime.now().strftime("lesson-%Y%m%d%H%M%S%f"),
+        return self.upsert_schedule_slots([
+            {
                 "session": session,
-                "day": str(day),
-                "period": int(period),
+                "day": day,
+                "period": period,
                 "subject": subject,
                 "lecturer": lecturer,
-                "reminder_minutes": 30,
-                "start": "",
-                "room": "",
             }
-            conn.execute(
-                "INSERT INTO schedule (id, session, day, period, subject, lecturer, reminder_minutes, start, room) VALUES (:id, :session, :day, :period, :subject, :lecturer, :reminder_minutes, :start, :room)",
-                item,
-            )
+        ])[0]
+
+    def upsert_schedule_slots(self, slots: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not isinstance(slots, list):
+            raise ValueError("Danh sách tiết học không hợp lệ.")
+
+        created: list[dict[str, Any]] = []
+        with self._connect() as conn:
+            for raw_slot in slots:
+                session = str(raw_slot.get("session", "morning")).strip()
+                day = str(raw_slot.get("day", "2")).strip()
+                period = int(raw_slot.get("period", 1))
+                subject = str(raw_slot.get("subject", "")).strip()
+                lecturer = str(raw_slot.get("lecturer", "")).strip()
+
+                if session not in {"morning", "afternoon"}:
+                    raise ValueError("Buổi học không hợp lệ.")
+                if day not in {"2", "3", "4", "5", "6", "7"}:
+                    raise ValueError("Thứ học không hợp lệ.")
+                if period not in range(1, 6):
+                    raise ValueError("Tiết học phải từ 1 đến 5.")
+                if not subject:
+                    raise ValueError("Tên môn học không được để trống.")
+
+                row = conn.execute(
+                    "SELECT * FROM schedule WHERE session=? AND day=? AND period=?",
+                    (session, day, period),
+                ).fetchone()
+                if row:
+                    conn.execute(
+                        "UPDATE schedule SET subject=?, lecturer=? WHERE id=?",
+                        (subject, lecturer, row["id"]),
+                    )
+                    item = dict(row)
+                    item.update({"subject": subject, "lecturer": lecturer})
+                    created.append(item)
+                    continue
+
+                item = {
+                    "id": self._new_schedule_id(),
+                    "session": session,
+                    "day": day,
+                    "period": period,
+                    "subject": subject,
+                    "lecturer": lecturer,
+                    "reminder_minutes": 30,
+                    "start": "",
+                    "room": "",
+                }
+                conn.execute(
+                    "INSERT INTO schedule (id, session, day, period, subject, lecturer, reminder_minutes, start, room) VALUES (:id, :session, :day, :period, :subject, :lecturer, :reminder_minutes, :start, :room)",
+                    item,
+                )
+                created.append(item)
             conn.commit()
-            return item
+        return created
 
     def delete_schedule_slot(self, session: str, day: str, period: int) -> bool:
         with self._connect() as conn:
@@ -190,7 +226,7 @@ class StudyRepository:
         reminder_minutes: int,
     ) -> dict[str, Any]:
         item = {
-            "id": datetime.now().strftime("lesson-%Y%m%d%H%M%S%f"),
+            "id": self._new_schedule_id(),
             "subject": subject,
             "day": day,
             "start": start,
