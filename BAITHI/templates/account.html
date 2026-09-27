@@ -101,8 +101,9 @@
 
 <body>
     <main><a id="back" href="/login">← Quay lại</a>
-        <h1>Tài khoản của tôi</h1>
+        <h1 id="page-title">Tài khoản của tôi</h1>
         <p id="loading" role="status"></p>
+        <div id="account-sections">
         <section>
             <h2>Thông tin cá nhân</h2>
             <form id="profile-form"><label>Tên đăng nhập<input id="username" disabled></label><label>Họ và tên<input
@@ -122,6 +123,7 @@
                 <p id="password-message" role="status"></p>
             </form>
         </section>
+        </div>
     </main><button type="button" class="report-button" id="report-button" aria-label="Báo lỗi hoặc góp ý"
         title="Báo lỗi / góp ý">✉</button>
     <dialog id="report-dialog">
@@ -140,7 +142,12 @@
         const token = localStorage.getItem('study_sync_session_token') || '';
         if (!user || !token || !['student', 'parent'].includes(user.role)) location.replace('/login');
         else document.getElementById('back').href = user.role === 'parent' ? '/parent' : '/student';
-        if (location.hash === '#report' && user && token) setTimeout(() => document.getElementById('report-dialog').showModal(), 0);
+        const reportMode = location.hash === '#report';
+        if (reportMode && user && token) {
+            document.getElementById('page-title').textContent = 'Báo lỗi / góp ý';
+            document.getElementById('account-sections').hidden = true;
+            setTimeout(() => document.getElementById('report-dialog').showModal(), 0);
+        }
         async function request(url, options = {}) { const response = await fetch(url, { ...options, headers: { ...(options.headers || {}), Authorization: `Bearer ${token}` } }); const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.detail || 'Yêu cầu thất bại.'); return data }
         if (user && token) request('/api/profile?username=' + encodeURIComponent(user.username)).then(({ user: current }) => { document.getElementById('username').value = current.username; document.getElementById('full-name').value = current.full_name || ''; document.getElementById('class-name').value = current.class_name || ''; document.getElementById('avatar').value = current.avatar || '' }).catch(e => document.getElementById('loading').textContent = e.message);
         document.getElementById('profile-form').onsubmit = async e => { e.preventDefault(); const status = document.getElementById('profile-message'); try { const data = await request('/api/profile', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: user.username, full_name: document.getElementById('full-name').value, class_name: document.getElementById('class-name').value, avatar: document.getElementById('avatar').value }) }); localStorage.setItem('study_sync_user', JSON.stringify(data.user)); status.textContent = 'Đã lưu thông tin.' } catch (error) { status.textContent = error.message } };
