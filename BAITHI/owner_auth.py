@@ -8,7 +8,7 @@ import os
 import time
 from uuid import uuid4
 
-from data_storage import data_file, write_json_atomic
+from data_storage import backup_critical_file, data_file, write_json_atomic
 
 
 TOKEN_TTL_SECONDS = 8 * 60 * 60
@@ -67,6 +67,7 @@ def _get_user_session_secret() -> str:
         raise RuntimeError("Khóa phiên đăng nhập không hợp lệ.")
 
     secret = uuid4().hex + uuid4().hex
+    backup_critical_file("session_signing_secret.json")
     write_json_atomic(secret_file, secret)
     return secret
 

@@ -1,0 +1,34 @@
+# Cấu hình Render để dữ liệu tài khoản không mất khi deploy lại.
+#
+# Cách dùng:
+#   Render Dashboard -> service -> Blueprint -> chọn repo này, hoặc
+#   Render Dashboard -> New -> Blueprint -> trỏ tới repo này.
+#
+# LƯU Ý QUAN TRỌNG:
+#   - Persistent Disk KHÔNG có trên gói Free. Cần nâng lên Starter trở lên.
+#   - Disk phải dùng CÙNG region với service, Render không cho mount chéo region.
+#   - STUDYSYNC_DATA_DIR trỏ tới /var/data/studysync (nằm trong disk).
+#   - STUDYSYNC_SESSION_SECRET nên đặt cố định để phiên đăng nhập không bị
+#     đăng xuất mỗi lần deploy. Nếu để trống, app tự sinh khóa trong disk.
+#
+# Lần deploy ĐẦU TIÊN có disk: phải copy dữ liệu cũ vào /var/data/studysync
+# TRƯỚC khi app chạy (xem README mục "Giữ tài khoản và dữ liệu sau deploy").
+
+services:
+  - type: web
+    name: studysync
+    runtime: python
+    plan: starter
+    rootDir: BAITHI
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn web_app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    disk:
+      name: studysync-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: STUDYSYNC_DATA_DIR
+        value: /var/data/studysync
+      - key: STUDYSYNC_SESSION_SECRET
+        generateValue: true

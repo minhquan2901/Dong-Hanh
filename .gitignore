@@ -18,8 +18,10 @@
 **/*.sqlite3
 BAITHI/data/*.json
 BAITHI/data/*.tmp
+BAITHI/data/backups/
 DongHanh/TaiKhoan/*.json
 DongHanh/TaiKhoan/*.tmp
+DongHanh/TaiKhoan/backups/
 
 # Office temporary/lock files
 ~$*.docx

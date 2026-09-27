@@ -9,7 +9,7 @@ from threading import RLock
 from uuid import uuid4
 from typing import Any
 
-from data_storage import data_file, write_json_atomic
+from data_storage import backup_critical_file, data_file, write_json_atomic
 
 USERS_FILE = data_file("users.json")
 LINK_REQUESTS_FILE = data_file("link_requests.json")
@@ -42,6 +42,7 @@ def _load_link_requests() -> list[dict[str, Any]]:
 
 def _save_link_requests(requests: list[dict[str, Any]]) -> None:
     _ensure_link_request_store()
+    backup_critical_file("link_requests.json")
     write_json_atomic(LINK_REQUESTS_FILE, requests)
 
 
@@ -81,6 +82,7 @@ def load_users() -> list[dict[str, Any]]:
 
 def save_users(users: list[dict[str, Any]]) -> None:
     _ensure_store()
+    backup_critical_file("users.json")
     write_json_atomic(USERS_FILE, {"users": users})
 
 

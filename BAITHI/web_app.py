@@ -42,6 +42,7 @@ from owner_auth import (
     verify_user_token,
 )
 from owner_service import get_owner_overview, list_managed_users, managed_user_by_id, record_successful_feature_use, set_managed_user_active
+from data_storage import account_data_status
 from feedback_service import create_report, list_reports, mark_report_read
 
 ROOT = Path(__file__).resolve().parent
@@ -323,6 +324,20 @@ def root() -> RedirectResponse:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "StudySync Unified App"}
+
+
+@app.get("/health/data")
+def health_data() -> dict[str, object]:
+    """Xem du lieu tai khoan con nguyen khong sau moi lan deploy."""
+    status = account_data_status()
+    return {
+        "status": "ok",
+        "data_dir": status["data_dir"],
+        "persistent_dir": status["using_persistent_dir"],
+        "user_count": status["user_count"],
+        "has_session_secret": status["has_session_secret"],
+        "files": status["files"],
+    }
 
 
 @app.get("/firebase-messaging-sw.js")

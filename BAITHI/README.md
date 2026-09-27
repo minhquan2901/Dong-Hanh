@@ -88,9 +88,31 @@ Sau khi bật push trên máy tính, trình duyệt đăng ký service worker v�
 
 Để dữ liệu không mất khi Render deploy lại hoặc thay instance:
 
-1. Sao lưu dữ liệu hiện có từ service (đặc biệt `users.json` và `link_requests.json`) trước khi reset/redeploy hoặc thay storage.
-2. Gắn Render Persistent Disk vào service, mount tại `/var/data`.
-3. Đặt biến môi trường `STUDYSYNC_DATA_DIR=/var/data/studysync` và đưa bản sao lưu vào thư mục `studysync` trên disk trước khi chạy bản mới.
+1. Nâng gói lên **Starter trở lên** (Persistent Disk không có trên Free).
+2. Gắn Render Persistent Disk vào service, mount tại `/var/data`. Disk **phải cùng region** với service.
+3. Đặt biến môi trường `STUDYSYNC_DATA_DIR=/var/data/studysync` và `STUDYSYNC_SESSION_SECRET` (chuỗi ngẫu nhiên ≥32 ký tự, đặt cố định).
+4. Lần đầu tiên có disk: copy dữ liệu cũ vào `/var/data/studysync` **trước khi deploy bản mới**.
+
+File `render.yaml` ở thư mục gốc khai báo sẵn disk, biến môi trường và start command. Có thể dùng Render Blueprint để tạo service, hoặc chỉ lấy cấu hình trong đó để làm tay.
+
+**Bước 4 là bước dễ sót nhất.** Cơ chế di trú chỉ chạy một lần và chỉ khi thư mục đích chưa có file. Nếu deploy trước rồi mới copy, `users.json` đã được tạo rỗng và sẽ không bao giờ bị ghi đè lại. Cách làm đúng là copy qua Render Shell hoặc `scp` trước khi deploy. Sau lần này thì mọi lần deploy chỉ thay code, không đụng vào disk.
+
+Kiểm tra dữ liệu còn nguyên không bằng cách mở `/health/data`, trả về số tài khoản, thư mục dữ liệu đang dùng và trạng thái khóa phiên đăng nhập. Nếu `user_count` bỗng về 0 sau một lần deploy nghĩa là dữ liệu chưa nằm trên disk.
+
+### Sao lưu tự động và khôi phục
+
+Mỗi lần ghi `users.json`, `link_requests.json` hoặc `session_signing_secret.json`, ứng dụng giữ lại bản sao trong `<STUDYSYNC_DATA_DIR>/backups/`, tối đa 20 bản gần nhất (đổi bằng `STUDYSYNC_BACKUP_KEEP`). File JSON hỏng không được sao lưu và bản sao hỏng bị bỏ qua khi khôi phục.
+
+Khôi phục từ Render Shell:
+
+```bash
+cd /var/data/studysync
+cp users.json users.json.hong              # giữ lại bản hỏng để đối chiếu
+ls -t backups/users.json.*.bak.json | head  # xem các bản sao gần nhất
+cp "$(ls -t backups/users.json.*.bak.json | head -1)" users.json
+```
+
+Khôi phục được là cứu được tài khoản, nhưng các phiên đăng nhập đang mở vẫn có thể hết hạn nếu `session_signing_secret.json` cũng bị thay. Nếu khôi phục cả file này từ backup thì phiên cũ chạy lại được.
 
 Khi thư mục persistent mới chưa có một file nhưng file cũ còn trong `BAITHI/data`, ứng dụng sẽ di trú file đó một lần và không ghi đè file đã có trên disk. Nếu hosting đã xóa filesystem cũ trước khi sao lưu, ứng dụng không thể khôi phục dữ liệu đã mất. Tệp JSON lỗi sẽ báo lỗi thay vì bị coi là danh sách rỗng. Đăng xuất không xóa tài khoản. Persistent disk bảo vệ qua deploy/restart; nếu xóa disk hoặc reset/xóa dữ liệu trực tiếp trên disk thì dữ liệu không thể tự khôi phục.
 
