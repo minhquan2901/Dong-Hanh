@@ -52,6 +52,9 @@
     .login-form label { display:grid; gap:7px; font-weight:700; }
     .login-form input { min-height:44px; padding:10px 12px; border:1px solid var(--line); border-radius:7px; }
     .error { min-height:20px; margin:0; color:#a3382b; }
+    .inbox-item { border-bottom:1px solid var(--line); padding:14px 0; overflow-wrap:anywhere; }
+    .inbox-item p { white-space:pre-wrap; }
+    .inbox-item.unread { background:#f3faf7; }
     [hidden] { display:none !important; }
     @media(max-width:820px) { .metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .content-grid { grid-template-columns:1fr; } }
     @media(max-width:480px) { main { padding:26px 14px 40px; } .metrics { gap:8px; } .metric { min-height:110px; padding:13px; } .metric strong { font-size:27px; } .topbar { align-items:flex-start; } .session { flex-direction:column; align-items:flex-end; gap:6px; font-size:13px; } }
@@ -96,6 +99,7 @@
         </table></div>
       </section>
     </div>
+    <section class="panel" style="margin-top:20px"><h2>Hòm thư báo lỗi và góp ý <span id="unread-count"></span></h2><div id="report-inbox"></div></section>
   </main>
   <script>
     const tokenKey = 'study_sync_owner_token';
@@ -116,10 +120,12 @@
     }
 
     async function loadOwnerDashboard() {
-      const [overview, usersResult] = await Promise.all([
+      const [overview, usersResult, reportsResult] = await Promise.all([
         ownerRequest('/api/owner/overview'),
         ownerRequest('/api/owner/users'),
+        ownerRequest('/api/owner/reports'),
       ]);
+      renderReports(reportsResult.reports);
       document.getElementById('total-users').textContent = overview.users.total;
       document.getElementById('used-users').textContent = overview.users.used_features;
       document.getElementById('student-users').textContent = overview.users.students;
@@ -165,8 +171,57 @@
         action.textContent = user.is_active ? 'Khóa' : 'Mở khóa';
         action.addEventListener('click', () => setUserActive(user, !user.is_active));
         actionCell.appendChild(action);
+        const edit = document.createElement('button');
+        edit.className = 'secondary';
+        edit.type = 'button';
+        edit.textContent = 'Sửa';
+        edit.addEventListener('click', () => editUser(user));
+        actionCell.appendChild(edit);
         tr.append(identity, role, classCell, usage, statusCell, actionCell);
         body.appendChild(tr);
+      });
+    }
+
+    async function editUser(user) {
+      const fullName = prompt('Họ tên:', user.full_name);
+      if (fullName === null) return;
+      const className = prompt('Lớp (có thể để trống):', user.class_name || '');
+      if (className === null) return;
+      try {
+        await ownerRequest(`/api/owner/users/${encodeURIComponent(user.id)}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ full_name: fullName, class_name: className }),
+        });
+        await loadOwnerDashboard();
+      } catch (error) { alert(error.message); }
+    }
+
+    function renderReports(reports) {
+      const inbox = document.getElementById('report-inbox');
+      inbox.replaceChildren();
+      document.getElementById('unread-count').textContent = `(${reports.filter(r => !r.read).length} chưa đọc)`;
+      if (!reports.length) { inbox.textContent = 'Chưa có báo cáo nào.'; return; }
+      reports.forEach(report => {
+        const row = document.createElement('article');
+        row.className = `inbox-item${report.read ? '' : ' unread'}`;
+        const heading = document.createElement('strong');
+        heading.textContent = `${report.category === 'bug' ? 'Báo lỗi' : 'Góp ý'} · @${report.username} · ${report.created_at}`;
+        const message = document.createElement('p');
+        message.textContent = report.message;
+        const button = document.createElement('button');
+        button.className = 'secondary';
+        button.textContent = report.read ? 'Đánh dấu chưa đọc' : 'Đánh dấu đã đọc';
+        button.onclick = async () => {
+          try {
+            await ownerRequest(`/api/owner/reports/${encodeURIComponent(report.id)}`, {
+              method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ read: !report.read }),
+            });
+            await loadOwnerDashboard();
+          } catch (error) { alert(error.message); }
+        };
+        row.append(heading, message, button);
+        inbox.appendChild(row);
       });
     }
 

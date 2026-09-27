@@ -22,6 +22,7 @@ from auth_service import (
     set_secondary_pin,
     set_pin_login_enabled,
     update_linked_student,
+    update_account,
     verify_secondary_pin,
 )
 from backend.notification_service import (
@@ -40,7 +41,8 @@ from owner_auth import (
     verify_owner_token,
     verify_user_token,
 )
-from owner_service import get_owner_overview, list_managed_users, record_successful_feature_use, set_managed_user_active
+from owner_service import get_owner_overview, list_managed_users, managed_user_by_id, record_successful_feature_use, set_managed_user_active
+from feedback_service import create_report, list_reports, mark_report_read
 
 ROOT = Path(__file__).resolve().parent
 STATIC_DIR = ROOT / "static"
@@ -138,8 +140,27 @@ class OwnerLoginPayload(BaseModel):
 
 class OwnerUserStatusPayload(BaseModel):
     is_active: bool
+class ProfileUpdatePayload(BaseModel):
+    username: str
+    full_name: str
+    class_name: str = ""
+    avatar: str = ""
 
+class PasswordUpdatePayload(BaseModel):
+    username: str
+    current_password: str
+    new_password: str
+class OwnerUserEditPayload(BaseModel):
+    full_name: str
+    class_name: str = ""
+    avatar: str | None = None
 
+class ReportPayload(BaseModel):
+    username: str
+    category: str
+    message: str
+class ReportReadPayload(BaseModel):
+    read: bool
 class OwnerLoginResponse(BaseModel):
     token: str
     username: str
@@ -158,11 +179,15 @@ def _require_user_session(
     allowed_roles: set[str] | None = None,
 ):
     scheme, _, token = str(authorization or "").partition(" ")
-    if scheme.lower() != "bearer" or not verify_user_token(token.strip(), username):
-        raise HTTPException(status_code=401, detail="Vui lòng đăng nhập lại để tiếp tục.")
     user = get_user_by_username(username)
-    if not user or not user.get("is_active", True):
+    if not user:
+        raise HTTPException(status_code=403, detail="Tài khoản không tồn tại.")
+    if not user.get("is_active", True):
         raise HTTPException(status_code=403, detail="Tài khoản đã bị khóa hoặc không còn hoạt động.")
+    if scheme.lower() != "bearer" or not verify_user_token(
+        token.strip(), username, str(user.get("role", "student")), int(user.get("session_version", 0))
+    ):
+        raise HTTPException(status_code=401, detail="Vui lòng đăng nhập lại để tiếp tục.")
     if allowed_roles and user.get("role") not in allowed_roles:
         raise HTTPException(status_code=403, detail="Không có quyền thực hiện thao tác này.")
     return user
@@ -177,7 +202,7 @@ def _record_feature_success(username: str | None, token: str | None, feature: st
         user
         and user.get("is_active", True)
         and user.get("role") in {"student", "parent"}
-        and verify_user_token(str(token or ""), clean_username, str(user.get("role")))
+        and verify_user_token(str(token or ""), clean_username, str(user.get("role")), int(user.get("session_version", 0)))
     ):
         record_successful_feature_use(clean_username, feature)
 
@@ -362,6 +387,10 @@ async def parent_dashboard_page(request: Request):
 async def owner_dashboard_page(request: Request):
     return templates.TemplateResponse(request=request, name="owner.html")
 
+@app.get("/account")
+async def account_page(request: Request):
+    return templates.TemplateResponse(request=request, name="account.html")
+
 
 @app.post("/api/owner/login", response_model=OwnerLoginResponse)
 def owner_login(payload: OwnerLoginPayload):
@@ -418,7 +447,7 @@ def login(payload: AuthPayload):
         if not verify_secondary_pin(payload.username, payload.pin):
             raise HTTPException(status_code=401, detail="Mã PIN không đúng.")
     try:
-        session_token = create_user_token(str(user.get("username", "")), str(user.get("role", "student")))
+        session_token = create_user_token(str(user.get("username", "")), str(user.get("role", "student")), int(user.get("session_version", 0)))
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="Chưa cấu hình khóa phiên đăng nhập an toàn.") from exc
 
@@ -818,11 +847,68 @@ def parent_children(username: str = Query(...)):
 
 
 @app.get("/api/profile")
-def user_profile(username: str = Query(...)):
-    user = get_user_by_username(username)
+def user_profile(username: str = Query(...), authorization: str | None = Header(default=None)):
+    user = _require_user_session(authorization, username)
+    return {"user": _public_user(user)}
+
+
+def _public_user(user: dict) -> dict:
+    return {key: user.get(key) for key in (
+        "id", "username", "full_name", "role", "class_name", "student_id",
+        "avatar", "parent_username", "is_active", "pin_login_enabled"
+    )}
+
+@app.patch("/api/profile")
+def save_profile(payload: ProfileUpdatePayload, authorization: str | None = Header(default=None)):
+    _require_user_session(authorization, payload.username)
+    try:
+        user = update_account(payload.username, full_name=payload.full_name,
+                              class_name=payload.class_name, avatar=payload.avatar)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"user": _public_user(user)}
+
+@app.post("/api/profile/password")
+def change_password(payload: PasswordUpdatePayload, authorization: str | None = Header(default=None)):
+    _require_user_session(authorization, payload.username)
+    try:
+        update_account(payload.username, current_password=payload.current_password,
+                       new_password=payload.new_password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"message": "Đã đổi mật khẩu. Vui lòng đăng nhập lại."}
+
+@app.patch("/api/owner/users/{user_id}")
+def owner_edit_user(user_id: str, payload: OwnerUserEditPayload, authorization: str | None = Header(default=None)):
+    _require_owner(authorization)
+    user = managed_user_by_id(user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="Không tìm thấy người dùng.")
-    return {"user": user}
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
+    try:
+        updated = update_account(user["username"], full_name=payload.full_name,
+                                 class_name=payload.class_name, avatar=payload.avatar, by_owner=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"user": _public_user(updated)}
+
+@app.post("/api/reports", status_code=201)
+def submit_report(payload: ReportPayload, authorization: str | None = Header(default=None)):
+    _require_user_session(authorization, payload.username)
+    try:
+        return {"report": create_report(payload.username, payload.category, payload.message)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+@app.get("/api/owner/reports")
+def owner_reports(authorization: str | None = Header(default=None)):
+    _require_owner(authorization)
+    return {"reports": list(reversed(list_reports()))}
+
+@app.patch("/api/owner/reports/{report_id}")
+def owner_mark_report(report_id: str, payload: ReportReadPayload, authorization: str | None = Header(default=None)):
+    _require_owner(authorization)
+    if not mark_report_read(report_id, payload.read):
+        raise HTTPException(status_code=404, detail="Không tìm thấy báo cáo.")
+    return {"message": "Đã cập nhật hòm thư."}
 
 
 if __name__ == "__main__":

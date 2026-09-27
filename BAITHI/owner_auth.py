@@ -71,18 +71,19 @@ def _get_user_session_secret() -> str:
     return secret
 
 
-def create_user_token(username: str, role: str) -> str:
+def create_user_token(username: str, role: str, session_version: int = 0) -> str:
     secret = _get_user_session_secret()
     payload = _b64encode(json.dumps({
         "sub": username,
         "role": role,
+        "ver": session_version,
         "exp": int(time.time()) + TOKEN_TTL_SECONDS,
     }, separators=(",", ":")).encode("utf-8"))
     signature = hmac.new(secret.encode("utf-8"), payload.encode("ascii"), hashlib.sha256).digest()
     return f"{payload}.{_b64encode(signature)}"
 
 
-def verify_user_token(token: str, username: str, role: str | None = None) -> bool:
+def verify_user_token(token: str, username: str, role: str | None = None, session_version: int = 0) -> bool:
     try:
         secret = _get_user_session_secret()
         payload_part, signature_part = str(token or "").split(".", 1)
@@ -96,6 +97,7 @@ def verify_user_token(token: str, username: str, role: str | None = None) -> boo
         return (
             str(payload.get("sub", "")).strip().lower() == str(username or "").strip().lower()
             and (role is None or payload.get("role") == role)
+            and int(payload.get("ver", 0)) == session_version
             and int(payload.get("exp", 0)) > int(time.time())
         )
     except (OSError, RuntimeError, ValueError, TypeError, json.JSONDecodeError, UnicodeDecodeError):

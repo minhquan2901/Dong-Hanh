@@ -267,6 +267,7 @@
         </div>
         <button id="theme-toggle" class="theme-toggle" type="button">Chế độ tối</button>
         <button id="web-notification-toggle" class="web-notification-toggle" type="button">Bật thông báo máy tính</button>
+        <a class="logout" href="/account">Tài khoản / Đổi mật khẩu</a>
         <button class="logout" type="button" onclick="logout()">Đăng xuất</button>
       </div>
     </header>
@@ -290,6 +291,7 @@
         </div>
       </section>
 
+      <a href="/account#report" title="Báo lỗi hoặc góp ý" aria-label="Báo lỗi hoặc góp ý" style="position:fixed;right:20px;bottom:20px;z-index:20;width:60px;height:60px;border-radius:50%;background:#2563eb;color:white;display:grid;place-items:center;font-size:28px;box-shadow:0 6px 18px #0003;text-decoration:none">✉</a>
       <nav class="taskbar" aria-label="Điều hướng học sinh">
         <a class="active" href="#overview">Tổng quan</a>
         <a href="#schedule">Thời khóa biểu</a>
@@ -329,7 +331,40 @@
             <label>Thứ<select id="editor-day"><option value="2">Thứ 2</option><option value="3">Thứ 3</option><option value="4">Thứ 4</option><option value="5">Thứ 5</option><option value="6">Thứ 6</option><option value="7">Thứ 7</option></select></label>
             <label>Tiết<select id="editor-period"><option value="1">Tiết 1</option><option value="2">Tiết 2</option><option value="3">Tiết 3</option><option value="4">Tiết 4</option><option value="5">Tiết 5</option></select></label>
             <label>Loại tiết<select id="editor-duration"><option value="1">Tiết đơn</option><option value="2">Tiết đôi</option></select></label>
-            <label>Môn học<input id="editor-subject" required placeholder="Ví dụ: Toán"></label>
+            <label>Môn học
+              <select id="editor-subject-select" required>
+                <option value="Toán">Toán</option>
+                <option value="Ngữ văn">Ngữ văn</option>
+                <option value="Tiếng Anh">Tiếng Anh</option>
+                <option value="Tiếng Pháp">Tiếng Pháp</option>
+                <option value="Tiếng Trung">Tiếng Trung</option>
+                <option value="Tiếng Nhật">Tiếng Nhật</option>
+                <option value="Tiếng Hàn">Tiếng Hàn</option>
+                <option value="Tiếng Nga">Tiếng Nga</option>
+                <option value="Tiếng Đức">Tiếng Đức</option>
+                <option value="Tiếng khác">Tiếng khác</option>
+                <option value="KHTN">Khoa học tự nhiên (KHTN)</option>
+                <option value="LS&ĐL">Lịch sử và Địa lý (LS&ĐL)</option>
+                <option value="GDCD">Giáo dục công dân (GDCD)</option>
+                <option value="GDKT&PL">Giáo dục kinh tế và pháp luật (GDKT&PL)</option>
+                <option value="Vật lí">Vật lí</option>
+                <option value="Hóa học">Hóa học</option>
+                <option value="Sinh học">Sinh học</option>
+                <option value="Lịch sử">Lịch sử</option>
+                <option value="Địa lí">Địa lí</option>
+                <option value="Tin học">Tin học</option>
+                <option value="Công nghệ">Công nghệ</option>
+                <option value="GDTC">Giáo dục thể chất (GDTC)</option>
+                <option value="Âm nhạc">Âm nhạc</option>
+                <option value="Mỹ thuật">Mỹ thuật</option>
+                <option value="HĐTN-HN">Hoạt động trải nghiệm, hướng nghiệp (HĐTN-HN)</option>
+                <option value="GD địa phương">Giáo dục địa phương (GDĐP)</option>
+                <option value="Chuyên đề">Chuyên đề</option>
+                <option value="STEM">STEM</option>
+                <option value="Môn khác">Môn khác (nhập tên viết tắt)</option>
+              </select>
+              <input id="editor-subject-custom" maxlength="18" placeholder="Tên ngắn, tối đa 18 ký tự" hidden />
+            </label>
             <label>Giáo viên<input id="editor-lecturer" placeholder="Ví dụ: T.Thọ"></label>
             <div class="editor-actions" style="grid-column: 1 / -1;"><button class="save-button" type="submit">Thêm vào danh sách</button><button id="save-schedule-queue" class="edit-button" type="button">Lưu tất cả</button><button id="cancel-edit" class="cancel-button" type="button">Xóa danh sách</button></div>
             <div id="schedule-queue" class="schedule-queue" aria-live="polite"></div>
@@ -399,6 +434,8 @@
       const views = document.querySelectorAll('.view');
       const editor = document.getElementById('schedule-editor');
       const editScheduleButton = document.getElementById('edit-schedule-button');
+      const subjectSelect = document.getElementById('editor-subject-select');
+      const customSubjectInput = document.getElementById('editor-subject-custom');
       const scheduleQueueElement = document.getElementById('schedule-queue');
       const pendingScheduleEntries = [];
       const scheduleData = { morning: [], afternoon: [] };
@@ -516,6 +553,19 @@
         renderScheduleQueue();
       });
 
+      subjectSelect.addEventListener('change', () => {
+        const custom = subjectSelect.value === 'Môn khác';
+        customSubjectInput.hidden = !custom;
+        customSubjectInput.required = custom;
+        if (custom) customSubjectInput.focus();
+      });
+
+      function selectedSubject() {
+        return subjectSelect.value === 'Môn khác'
+          ? customSubjectInput.value.trim()
+          : subjectSelect.value;
+      }
+
       function renderScheduleQueue() {
         scheduleQueueElement.replaceChildren();
         scheduleQueueElement.classList.toggle('open', pendingScheduleEntries.length > 0);
@@ -552,9 +602,13 @@
           day: document.getElementById('editor-day').value,
           period: Number(document.getElementById('editor-period').value),
           duration: Number(document.getElementById('editor-duration').value),
-          subject: document.getElementById('editor-subject').value.trim(),
+          subject: selectedSubject(),
           lecturer: document.getElementById('editor-lecturer').value.trim(),
         };
+        if (!entry.subject) {
+          showWebToast('Chưa có tên môn', 'Hãy chọn môn học hoặc nhập tên viết tắt cho môn khác.');
+          return;
+        }
         if (entry.duration === 2 && entry.period === 5) {
           showWebToast('Không thể thêm tiết đôi', 'Tiết đôi cần một tiết kế tiếp; hãy chọn tiết bắt đầu từ 1 đến 4.');
           return;
@@ -572,12 +626,13 @@
         }
         pendingScheduleEntries.push(entry);
         renderScheduleQueue();
-        document.getElementById('editor-subject').value = '';
+        if (subjectSelect.value === 'Môn khác') customSubjectInput.value = '';
         document.getElementById('editor-lecturer').value = '';
         document.getElementById('editor-duration').value = '1';
         const nextPeriod = entry.period + entry.duration;
         if (nextPeriod <= 5) document.getElementById('editor-period').value = String(nextPeriod);
-        document.getElementById('editor-subject').focus();
+        if (subjectSelect.value === 'Môn khác') customSubjectInput.focus();
+        else document.getElementById('editor-lecturer').focus();
       });
 
       document.getElementById('save-schedule-queue').addEventListener('click', async () => {
@@ -862,10 +917,27 @@
         document.getElementById('editor-day').value = day;
         document.getElementById('editor-period').value = period;
         document.getElementById('editor-duration').value = '1';
-        document.getElementById('editor-subject').value = lesson?.subject || '';
+        const existingSubject = lesson?.subject || '';
+        const matchingOption = Array.from(subjectSelect.options).find((option) => option.value === existingSubject);
+        if (matchingOption) {
+          subjectSelect.value = existingSubject;
+          customSubjectInput.value = '';
+          customSubjectInput.hidden = true;
+          customSubjectInput.required = false;
+        } else {
+          let legacyOption = Array.from(subjectSelect.options).find((option) => option.value === existingSubject);
+          if (!legacyOption) {
+            legacyOption = new Option(`${existingSubject} (đang dùng)`, existingSubject);
+            subjectSelect.add(legacyOption, subjectSelect.options.length - 1);
+          }
+          subjectSelect.value = existingSubject;
+          customSubjectInput.value = '';
+          customSubjectInput.hidden = true;
+          customSubjectInput.required = false;
+        }
         document.getElementById('editor-lecturer').value = lesson?.lecturer || '';
         setScheduleEditor(true);
-        document.getElementById('editor-subject').focus();
+        subjectSelect.focus();
       }
 
       async function removeSlot(session, day, period) {

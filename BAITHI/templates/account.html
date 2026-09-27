@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="vi">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>StudySync | Tài khoản</title>
+    <style>
+        body {
+            margin: 0;
+            background: #f2f7f6;
+            color: #182936;
+            font: 16px Arial, sans-serif
+        }
+
+        main {
+            max-width: 650px;
+            margin: 40px auto;
+            padding: 0 18px
+        }
+
+        section {
+            background: white;
+            border: 1px solid #d7e2df;
+            border-radius: 14px;
+            padding: 24px;
+            margin: 20px 0
+        }
+
+        h1,
+        h2 {
+            margin: 0 0 16px
+        }
+
+        label {
+            display: block;
+            margin: 12px 0;
+            font-weight: bold
+        }
+
+        input {
+            display: block;
+            width: 100%;
+            box-sizing: border-box;
+            padding: 11px;
+            margin-top: 6px;
+            border: 1px solid #aebbb8;
+            border-radius: 8px;
+            font: inherit
+        }
+
+        button {
+            border: 0;
+            border-radius: 8px;
+            padding: 11px 17px;
+            background: #087e72;
+            color: white;
+            font-weight: bold;
+            cursor: pointer
+        }
+
+        a {
+            color: #087e72
+        }
+
+        p[role=status] {
+            min-height: 1.2em
+        }
+
+        .report-button {
+            position: fixed;
+            right: 22px;
+            bottom: 22px;
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            box-shadow: 0 6px 18px #0003
+        }
+
+        dialog {
+            border: 1px solid #d7e2df;
+            border-radius: 14px;
+            width: min(400px, 85vw);
+            padding: 24px
+        }
+
+        dialog::backdrop {
+            background: #0008
+        }
+
+        textarea,
+        select {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 10px;
+            margin: 8px 0 15px;
+            font: inherit
+        }
+    </style>
+</head>
+
+<body>
+    <main><a id="back" href="/login">← Quay lại</a>
+        <h1>Tài khoản của tôi</h1>
+        <p id="loading" role="status"></p>
+        <section>
+            <h2>Thông tin cá nhân</h2>
+            <form id="profile-form"><label>Tên đăng nhập<input id="username" disabled></label><label>Họ và tên<input
+                        id="full-name" required maxlength="100"></label><label>Lớp (nếu có)<input id="class-name"
+                        maxlength="50"></label><label>Avatar (chữ hoặc đường dẫn)<input id="avatar"
+                        maxlength="100"></label><button>Lưu thông tin</button>
+                <p id="profile-message" role="status"></p>
+            </form>
+        </section>
+        <section>
+            <h2>Đổi mật khẩu</h2>
+            <form id="password-form"><label>Mật khẩu hiện tại<input id="current-password" type="password"
+                        autocomplete="current-password" required></label><label>Mật khẩu mới<input id="new-password"
+                        type="password" autocomplete="new-password" minlength="6" required></label><label>Nhập lại mật
+                    khẩu mới<input id="confirm-password" type="password" autocomplete="new-password" minlength="6"
+                        required></label><button>Đổi mật khẩu</button>
+                <p id="password-message" role="status"></p>
+            </form>
+        </section>
+    </main><button type="button" class="report-button" id="report-button" aria-label="Báo lỗi hoặc góp ý"
+        title="Báo lỗi / góp ý">✉</button>
+    <dialog id="report-dialog">
+        <h2>Báo lỗi / góp ý</h2>
+        <form id="report-form"><label>Loại thông báo<select id="report-category">
+                    <option value="bug">Báo lỗi</option>
+                    <option value="feedback">Góp ý</option>
+                </select></label><label>Nội dung<textarea id="report-message" rows="5" minlength="10" maxlength="2000"
+                    required placeholder="Mô tả lỗi hoặc góp ý của bạn..."></textarea></label><button>Gửi tới quản trị
+                viên</button> <button type="button" id="close-report" style="background:#667">Đóng</button>
+            <p id="report-status" role="status"></p>
+        </form>
+    </dialog>
+    <script>
+        const user = JSON.parse(localStorage.getItem('study_sync_user') || 'null');
+        const token = localStorage.getItem('study_sync_session_token') || '';
+        if (!user || !token || !['student', 'parent'].includes(user.role)) location.replace('/login');
+        else document.getElementById('back').href = user.role === 'parent' ? '/parent' : '/student';
+        if (location.hash === '#report' && user && token) setTimeout(() => document.getElementById('report-dialog').showModal(), 0);
+        async function request(url, options = {}) { const response = await fetch(url, { ...options, headers: { ...(options.headers || {}), Authorization: `Bearer ${token}` } }); const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.detail || 'Yêu cầu thất bại.'); return data }
+        if (user && token) request('/api/profile?username=' + encodeURIComponent(user.username)).then(({ user: current }) => { document.getElementById('username').value = current.username; document.getElementById('full-name').value = current.full_name || ''; document.getElementById('class-name').value = current.class_name || ''; document.getElementById('avatar').value = current.avatar || '' }).catch(e => document.getElementById('loading').textContent = e.message);
+        document.getElementById('profile-form').onsubmit = async e => { e.preventDefault(); const status = document.getElementById('profile-message'); try { const data = await request('/api/profile', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: user.username, full_name: document.getElementById('full-name').value, class_name: document.getElementById('class-name').value, avatar: document.getElementById('avatar').value }) }); localStorage.setItem('study_sync_user', JSON.stringify(data.user)); status.textContent = 'Đã lưu thông tin.' } catch (error) { status.textContent = error.message } };
+        document.getElementById('password-form').onsubmit = async e => { e.preventDefault(); const status = document.getElementById('password-message'); const next = document.getElementById('new-password').value; if (next !== document.getElementById('confirm-password').value) { status.textContent = 'Mật khẩu nhập lại không khớp.'; return } try { const data = await request('/api/profile/password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: user.username, current_password: document.getElementById('current-password').value, new_password: next }) }); localStorage.removeItem('study_sync_session_token'); localStorage.removeItem('study_sync_user'); status.textContent = data.message; setTimeout(() => location.replace('/login'), 1800) } catch (error) { status.textContent = error.message } };
+        const dialog = document.getElementById('report-dialog'); document.getElementById('report-button').onclick = () => dialog.showModal(); document.getElementById('close-report').onclick = () => dialog.close(); document.getElementById('report-form').onsubmit = async e => { e.preventDefault(); const status = document.getElementById('report-status'); try { await request('/api/reports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: user.username, category: document.getElementById('report-category').value, message: document.getElementById('report-message').value }) }); status.textContent = 'Đã gửi. Cảm ơn bạn!'; document.getElementById('report-message').value = '' } catch (error) { status.textContent = error.message } };
+    </script>
+</body>
+
+</html>

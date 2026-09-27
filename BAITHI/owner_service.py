@@ -7,7 +7,7 @@ from threading import RLock
 from typing import Any
 from uuid import uuid4
 
-from auth_service import USERS_LOCK, USERS_FILE, load_users, save_users
+from auth_service import get_user_by_username, load_users, update_account
 from data_storage import data_file, write_json_atomic
 
 
@@ -102,13 +102,13 @@ def list_managed_users() -> list[dict[str, Any]]:
     ]
 
 
+def managed_user_by_id(user_id: str) -> dict[str, Any] | None:
+    return next((user for user in load_users() if str(user.get("id", "")) == user_id), None)
+
+
 def set_managed_user_active(user_id: str, is_active: bool) -> bool:
-    with USERS_LOCK:
-        users = load_users()
-        for user in users:
-            if str(user.get("id", "")) != user_id:
-                continue
-            user["is_active"] = bool(is_active)
-            save_users(users)
-            return True
-    return False
+    user = managed_user_by_id(user_id)
+    if not user:
+        return False
+    update_account(user["username"], is_active=is_active, by_owner=True)
+    return True

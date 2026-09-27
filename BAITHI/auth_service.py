@@ -375,3 +375,45 @@ def set_pin_login_enabled(username: str, password: str, enabled: bool, pin: str 
             save_users(users)
             return True
     raise ValueError("Không tìm thấy tài khoản.")
+
+
+def update_account(username: str, *, full_name: str | None = None,
+                   class_name: str | None = None, avatar: str | None = None,
+                   current_password: str | None = None, new_password: str | None = None,
+                   is_active: bool | None = None, by_owner: bool = False) -> dict[str, Any]:
+    # Do not allow changes to username, role or student ID."
+    if new_password is not None and len(new_password) < 6:
+        raise ValueError("Mật khẩu mới phải có ít nhất 6 ký tự.")
+    if full_name is not None and (not full_name.strip() or len(full_name.strip()) > 100):
+        raise ValueError("Họ tên phải có từ 1 đến 100 ký tự.")
+    if class_name is not None and len(class_name.strip()) > 50:
+        raise ValueError("Tên lớp quá dài.")
+    if avatar is not None and len(avatar.strip()) > 100:
+        raise ValueError("Avatar quá dài.")
+    with USERS_LOCK:
+        users = load_users()
+        for user in users:
+            if str(user.get("username", "")).lower() != username.strip().lower():
+                continue
+            if not by_owner and not user.get("is_active", True):
+                raise ValueError("Tài khoản đã bị khóa.")
+            if new_password is not None and not by_owner and not hmac.compare_digest(
+                str(user.get("password", "")), str(current_password or "")
+            ):
+                raise ValueError("Mật khẩu hiện tại không đúng.")
+            if full_name is not None:
+                user["full_name"] = full_name.strip()
+            if class_name is not None:
+                user["class_name"] = class_name.strip()
+            if avatar is not None:
+                user["avatar"] = avatar.strip()
+            if is_active is not None and by_owner:
+                user["is_active"] = is_active
+                if not is_active:
+                    user["session_version"] = int(user.get("session_version", 0)) + 1
+            if new_password is not None:
+                user["password"] = new_password
+                user["session_version"] = int(user.get("session_version", 0)) + 1
+            save_users(users)
+            return user
+    raise ValueError("Không tìm thấy tài khoản.")
