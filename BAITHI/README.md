@@ -83,7 +83,7 @@ Trên Android có thể bật thông báo trực tiếp trong trình duyệt; c�
 3. Tạo Firebase service account JSON trong **Project settings → Service accounts → Generate new private key**. Giữ file này riêng tư.
 4. Trên Render, mở service → **Environment → Add Environment Variable** và thêm các biến bên dưới. Dán toàn bộ JSON service account vào một dòng cho `FIREBASE_SERVICE_ACCOUNT_JSON`.
 5. Bấm **Save, rebuild, and deploy** (hoặc lưu rồi manual deploy). Mở `/api/push/config`; khi cấu hình đúng, kết quả phải có `ready: true` và `vapid_key` khác rỗng.
-6. Mở trang học sinh bằng HTTPS, cho phép thông báo của trình duyệt, rồi bấm **Bật thông báo**. Kiểm tra thông báo bằng cách tạo/cập nhật tác vụ hoặc thời khóa biểu.
+6. Mở trang học sinh bằng HTTPS, cho phép thông báo của trình duyệt, rồi bấm **Bật thông báo**. Tạo/cập nhật thời khóa biểu để thử push tức thời.
 
 Khai báo các biến trong Render Environment, không commit giá trị bí mật:
 
@@ -92,9 +92,11 @@ Khai báo các biến trong Render Environment, không commit giá trị bí m�
 - `FIREBASE_VAPID_KEY` (Firebase Console → Project Settings → Cloud Messaging → Web Push certificates)
 - `FIREBASE_SERVICE_ACCOUNT_JSON` (nội dung JSON service account ghi thành **một dòng**; giữ riêng trong Render Environment, tuyệt đối không commit)
 - `PUBLIC_APP_URL` (URL HTTPS của ứng dụng Render)
-- `PUSH_CRON_SECRET` (chuỗi ngẫu nhiên dài để bảo vệ endpoint nhắc deadline)
+- `PUSH_CRON_SECRET` (chuỗi ngẫu nhiên dài để bảo vệ endpoint nhắc deadline; đặt cùng giá trị trong GitHub Actions secret)
 
-Sau khi bật push, trình duyệt đăng ký service worker và gắn token FCM với tài khoản học sinh. Khi nhiệm vụ được thêm/hoàn thành hoặc thời khóa biểu thay đổi, thiết bị đã đăng ký sẽ nhận push. Workflow `.github/workflows/desktop-push-reminders.yml` chạy hằng ngày lúc 21:00 giờ Việt Nam để gửi nhắc các nhiệm vụ đến hạn ngày hôm sau. Thêm repository secrets `PUSH_CRON_URL` (ví dụ `https://dong-hanh.onrender.com`) và `PUSH_CRON_SECRET` trong GitHub để bật lịch này.
+Sau khi bật push, trình duyệt đăng ký service worker và gắn token FCM với tài khoản học sinh. Khi nhiệm vụ được thêm/hoàn thành hoặc thời khóa biểu thay đổi, thiết bị đã đăng ký sẽ nhận push.
+
+Mỗi nhiệm vụ có ngày và giờ hoàn thành theo giờ Việt Nam. GitHub Actions workflow `.github/workflows/desktop-push-reminders.yml` quét mỗi 5 phút để gửi nhắc tại các mốc còn 1 ngày, 1 giờ, 10 phút và 5 phút. Lịch GitHub Actions là best-effort, nên có thể trễ vài phút. Thêm repository secrets `PUSH_CRON_URL` (ví dụ `https://dong-hanh.onrender.com`) và `PUSH_CRON_SECRET` trong GitHub để bật lịch; giá trị secret phải khớp với Render.
 
 ### Giữ tài khoản và dữ liệu sau deploy/restart
 

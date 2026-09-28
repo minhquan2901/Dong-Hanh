@@ -40,6 +40,7 @@ _OVERRIDE_ATTRS = {
     "link_requests": ("auth_service", "LINK_REQUESTS_FILE"),
     "feedback_inbox": ("feedback_service", "INBOX_FILE"),
     "feature_usage": ("owner_service", "USAGE_FILE"),
+    "push_reminder_state": ("backend.notification_service", "PUSH_REMINDER_STATE_FILE"),
 }
 
 

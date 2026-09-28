@@ -1,15 +1,15 @@
-name: Desktop push deadline reminders
+name: StudySync deadline reminders
 
 on:
   schedule:
-    - cron: "0 14 * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 jobs:
   send-reminders:
     runs-on: ubuntu-latest
     steps:
-      - name: Send due-tomorrow desktop push notifications
+      - name: Send due task reminders
         env:
           PUSH_CRON_URL: ${{ secrets.PUSH_CRON_URL }}
           PUSH_CRON_SECRET: ${{ secrets.PUSH_CRON_SECRET }}

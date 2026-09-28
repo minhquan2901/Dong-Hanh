@@ -163,7 +163,7 @@
       .task-tools { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 16px; }
       .task-tools select { border: 1px solid var(--line); border-radius: 8px; padding: 9px; background: #fff; }
       .add-task-button { border: 0; border-radius: 9px; padding: 9px 13px; background: var(--primary); color: #fff; font-weight: 700; cursor: pointer; }
-      .task-editor { display: none; grid-template-columns: 1.2fr 1fr 1fr 1fr auto; gap: 9px; padding: 13px; margin-bottom: 16px; background: #f8fbff; border: 1px solid var(--line); border-radius: 12px; }
+      .task-editor { display: none; grid-template-columns: 1.2fr 1fr 1fr .8fr 1fr auto; gap: 9px; padding: 13px; margin-bottom: 16px; background: #f8fbff; border: 1px solid var(--line); border-radius: 12px; }
       .task-editor.open { display: grid; }
       .task-editor input, .task-editor select { width: 100%; min-height: 36px; border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; background: #fff; }
       .task-item { align-items: flex-start; }
@@ -417,8 +417,10 @@
             <input id="task-title" required placeholder="Tên nhiệm vụ">
             <input id="task-subject" required placeholder="Môn học">
             <input id="task-due-date" required type="date">
+            <input id="task-due-time" required type="time" value="23:59" aria-label="Giờ cần hoàn thành">
             <select id="task-priority"><option>Trung bình</option><option>Cao</option><option>Quan trọng</option><option>Thấp</option></select>
             <button class="save-button" type="submit">Lưu</button>
+            <small style="grid-column:1 / -1;color:var(--muted);">Nhắc trước hạn: 1 ngày, 1 giờ, 10 phút và 5 phút.</small>
           </form>
           <div id="task-list" class="tasks"></div>
         </div>
@@ -746,8 +748,8 @@
         pendingScheduleEntries.length = 0;
         renderScheduleQueue();
         showWebToast(result.notification?.title || 'Đã lưu thời khóa biểu', result.notification?.message || result.message);
-        await loadDashboard();
         showView('schedule');
+        void loadDashboard().catch((error) => showWebToast('Đã lưu thời khóa biểu', error.message));
       });
 
       document.getElementById('task-filter').addEventListener('change', (event) => {
@@ -763,10 +765,15 @@
           title: document.getElementById('task-title').value.trim(),
           subject: document.getElementById('task-subject').value.trim(),
           due_date: document.getElementById('task-due-date').value,
+          due_time: document.getElementById('task-due-time').value,
           priority: document.getElementById('task-priority').value,
           username: user.username,
         };
-        if (!(await window.studySyncConfirm.confirm(`Thêm nhiệm vụ "${payload.title}"\nMôn: ${payload.subject}\nHạn: ${payload.due_date}`, 'Xác nhận thêm nhiệm vụ', { okText: 'Thêm nhiệm vụ' }))) return;
+        if (!(await window.studySyncConfirm.confirm(`Thêm nhiệm vụ "${payload.title}"\nMôn: ${payload.subject}\nHạn: ${payload.due_date} ${payload.due_time}`, 'Xác nhận thêm nhiệm vụ', { okText: 'Thêm nhiệm vụ' }))) return;
+        const saveButton = event.currentTarget.querySelector('[type="submit"]');
+        saveButton.disabled = true;
+        saveButton.textContent = 'Đang lưu...';
+        try {
         const response = await fetch('/api/assignments', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` }, body: JSON.stringify(payload) });
         const result = await response.json();
         if (!response.ok) { showWebToast('Không thể thêm nhiệm vụ', result.detail || 'Vui lòng thử lại.'); return; }
@@ -778,12 +785,20 @@
             { ...result.assignment, completed: false },
           ],
         });
+        assignmentsData = readStudentPersistedState().assignments;
+        renderTasks(assignmentsData);
         showWebToast('Đã thêm nhiệm vụ', `Nhiệm vụ "${payload.title}" đã được lưu.`);
-        window.studySyncConfirm.alert(`Nhiệm vụ "${payload.title}" đã được thêm.`, 'Thành công');
         event.target.reset();
+        document.getElementById('task-due-time').value = '23:59';
         event.target.classList.remove('open');
-        await loadDashboard();
         showView('assignments');
+        void loadDashboard().catch((error) => showWebToast('Đã lưu nhiệm vụ', error.message));
+        } catch (error) {
+          showWebToast('Lỗi kết nối', error.message || 'Không thể thêm nhiệm vụ.');
+        } finally {
+          saveButton.disabled = false;
+          saveButton.textContent = 'Lưu';
+        }
       });
 
       function showView(viewId, updateHistory = true) {
@@ -910,7 +925,7 @@
       }
 
       loadLinkInbox();
-      window.setInterval(loadLinkInbox, 10000);
+      window.setInterval(() => { void loadLinkInbox().catch(() => {}); }, 30000);
 
       function renderNotifications(alerts) {
         const list = document.getElementById('notification-list');
@@ -1050,7 +1065,7 @@
           <div class="task-item">
             <div class="task-content">
               <strong>${task.title}</strong>
-              <div class="meta">${task.subject} · Hạn ${task.due_date} · ${task.priority || 'Trung bình'}</div>
+              <div class="meta">${task.subject} · Hạn ${formatTaskDue(task.due_date)} · ${task.priority || 'Trung bình'}</div>
             </div>
             <div class="task-actions">
               <button class="task-action complete" type="button" onclick="toggleTask('${task.id}', ${!task.completed})">${task.completed ? 'Bỏ hoàn thành' : 'Hoàn thành'}</button>
@@ -1058,6 +1073,16 @@
             </div>
           </div>
         `).join('');
+      }
+
+      function formatTaskDue(value) {
+        const raw = String(value || '');
+        if (!raw.includes('T')) return `${raw} 23:59`;
+        const dueAt = new Date(raw);
+        if (Number.isNaN(dueAt.getTime())) return raw;
+        return new Intl.DateTimeFormat('vi-VN', {
+          timeZone: 'Asia/Ho_Chi_Minh', dateStyle: 'short', timeStyle: 'short',
+        }).format(dueAt);
       }
 
       async function toggleTask(taskId, completed) {
@@ -1071,8 +1096,8 @@
           assignments: updatedAssignments,
         });
         showWebToast(result.notification?.title || 'Đã cập nhật nhiệm vụ', result.notification?.message || result.message);
-        await loadDashboard();
         showView('assignments');
+        void loadDashboard().catch((error) => showWebToast('Đã cập nhật nhiệm vụ', error.message));
       }
 
       async function deleteTask(taskId) {

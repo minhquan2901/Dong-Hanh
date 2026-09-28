@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from database.study_repository import StudyRepository
 
@@ -83,12 +84,21 @@ class StudyBus:
             )
         return alerts
 
-    def add_assignment(self, title: str, subject: str, due_date: date, priority: str, username: str) -> dict[str, str | bool]:
+    def add_assignment(
+        self,
+        title: str,
+        subject: str,
+        due_date: date,
+        priority: str,
+        username: str,
+        due_time: time = time(23, 59),
+    ) -> dict[str, str | bool]:
         if not title.strip() or not subject.strip():
             raise ValueError("Tên bài tập và môn học không được để trống.")
         if priority not in {"Thấp", "Trung bình", "Cao", "Quan trọng"}:
             raise ValueError("Mức ưu tiên không hợp lệ.")
-        return self.repository.add_assignment(title.strip(), subject.strip(), due_date.isoformat(), priority, username)
+        due_at = datetime.combine(due_date, due_time, ZoneInfo("Asia/Ho_Chi_Minh"))
+        return self.repository.add_assignment(title.strip(), subject.strip(), due_at.isoformat(), priority, username)
 
     def set_completed(self, assignment_id: str, completed: bool, username: str) -> bool:
         return self.repository.set_assignment_completed(assignment_id, completed, username)

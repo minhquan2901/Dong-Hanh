@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import os
 import secrets
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
-from fastapi import FastAPI, Header, HTTPException, Query, Request
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -123,6 +123,7 @@ class AssignmentPayload(BaseModel):
     title: str
     subject: str
     due_date: date
+    due_time: time = time(23, 59)
     priority: str = "Trung bình"
     username: str | None = None
 
@@ -689,7 +690,11 @@ def parent_dashboard(username: str = Query(...), authorization: str | None = Hea
 
 
 @app.put("/api/schedule/slot")
-def update_schedule_slot(payload: ScheduleSlotPayload, authorization: str | None = Header(default=None)):
+def update_schedule_slot(
+    payload: ScheduleSlotPayload,
+    background_tasks: BackgroundTasks,
+    authorization: str | None = Header(default=None),
+):
     _require_user_session(authorization, payload.username or "", {"student"})
     try:
         item = StudyBus().upsert_schedule_slot(
@@ -697,9 +702,10 @@ def update_schedule_slot(payload: ScheduleSlotPayload, authorization: str | None
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    _record_feature_success(payload.username, authorization.partition(" ")[2] if authorization else None, "schedule")
+    background_tasks.add_task(_record_feature_success, payload.username, authorization.partition(" ")[2] if authorization else None, "schedule")
     if payload.username:
-        send_web_push_to_user(
+        background_tasks.add_task(
+            send_web_push_to_user,
             payload.username,
             "Đã cập nhật thời khóa biểu",
             f"Đã lưu {item.get('subject', 'tiết học')} vào thứ {payload.day}, tiết {payload.period}.",
@@ -716,7 +722,11 @@ def update_schedule_slot(payload: ScheduleSlotPayload, authorization: str | None
 
 
 @app.post("/api/schedule/slots")
-def bulk_update_schedule_slots(payload: ScheduleSlotBulkPayload, authorization: str | None = Header(default=None)):
+def bulk_update_schedule_slots(
+    payload: ScheduleSlotBulkPayload,
+    background_tasks: BackgroundTasks,
+    authorization: str | None = Header(default=None),
+):
     username = payload.slots[0].username if payload.slots else ""
     _require_user_session(authorization, username or "", {"student"})
     if any(item.username != username for item in payload.slots):
@@ -737,13 +747,15 @@ def bulk_update_schedule_slots(payload: ScheduleSlotBulkPayload, authorization: 
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if saved:
-        _record_feature_success(
+        background_tasks.add_task(
+            _record_feature_success,
             payload.slots[0].username if payload.slots else None,
             authorization.partition(" ")[2] if authorization else None,
             "schedule",
         )
     if payload.slots and payload.slots[0].username:
-        send_web_push_to_user(
+        background_tasks.add_task(
+            send_web_push_to_user,
             payload.slots[0].username,
             "Đã cập nhật thời khóa biểu",
             f"Đã lưu {len(saved)} tiết học vào thời khóa biểu.",
@@ -760,14 +772,19 @@ def bulk_update_schedule_slots(payload: ScheduleSlotBulkPayload, authorization: 
 
 
 @app.delete("/api/schedule/slot")
-def delete_schedule_slot(payload: ScheduleSlotDeletePayload, authorization: str | None = Header(default=None)):
+def delete_schedule_slot(
+    payload: ScheduleSlotDeletePayload,
+    background_tasks: BackgroundTasks,
+    authorization: str | None = Header(default=None),
+):
     _require_user_session(authorization, payload.username or "", {"student"})
     deleted = StudyBus().delete_schedule_slot(payload.session, payload.day, payload.period, payload.username or "")
     if not deleted:
         raise HTTPException(status_code=404, detail="Không tìm thấy tiết học.")
-    _record_feature_success(payload.username, authorization.partition(" ")[2] if authorization else None, "schedule")
+    background_tasks.add_task(_record_feature_success, payload.username, authorization.partition(" ")[2] if authorization else None, "schedule")
     if payload.username:
-        send_web_push_to_user(
+        background_tasks.add_task(
+            send_web_push_to_user,
             payload.username,
             "Đã cập nhật thời khóa biểu",
             "Một tiết học đã được xóa khỏi thời khóa biểu.",
@@ -777,17 +794,23 @@ def delete_schedule_slot(payload: ScheduleSlotDeletePayload, authorization: str 
 
 
 @app.post("/api/assignments")
-def create_assignment(payload: AssignmentPayload, authorization: str | None = Header(default=None)):
+def create_assignment(
+    payload: AssignmentPayload,
+    background_tasks: BackgroundTasks,
+    authorization: str | None = Header(default=None),
+):
     _require_user_session(authorization, payload.username or "", {"student"})
     try:
         item = StudyBus().add_assignment(
-            payload.title, payload.subject, payload.due_date, payload.priority, payload.username or ""
+            payload.title, payload.subject, payload.due_date, payload.priority,
+            payload.username or "", payload.due_time,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    _record_feature_success(payload.username, authorization.partition(" ")[2] if authorization else None, "assignments")
+    background_tasks.add_task(_record_feature_success, payload.username, authorization.partition(" ")[2] if authorization else None, "assignments")
     if payload.username:
-        send_web_push_to_user(
+        background_tasks.add_task(
+            send_web_push_to_user,
             payload.username,
             "Có nhiệm vụ mới",
             f"{item['title']} · hạn {item['due_date']}.",
@@ -797,16 +820,22 @@ def create_assignment(payload: AssignmentPayload, authorization: str | None = He
 
 
 @app.patch("/api/assignments/{assignment_id}")
-def update_assignment(assignment_id: str, payload: AssignmentCompletionPayload, authorization: str | None = Header(default=None)):
+def update_assignment(
+    assignment_id: str,
+    payload: AssignmentCompletionPayload,
+    background_tasks: BackgroundTasks,
+    authorization: str | None = Header(default=None),
+):
     _require_user_session(authorization, payload.username or "", {"student"})
     study = StudyBus()
     if not study.set_completed(assignment_id, payload.completed, payload.username or ""):
         raise HTTPException(status_code=404, detail="Không tìm thấy nhiệm vụ.")
-    _record_feature_success(payload.username, authorization.partition(" ")[2] if authorization else None, "assignments")
+    background_tasks.add_task(_record_feature_success, payload.username, authorization.partition(" ")[2] if authorization else None, "assignments")
     if payload.username and payload.completed:
         task = next((item for item in study.assignments(payload.username) if item.get("id") == assignment_id), None)
         title = str(task.get("title", "nhiệm vụ")) if task else "nhiệm vụ"
-        send_web_push_to_user(
+        background_tasks.add_task(
+            send_web_push_to_user,
             payload.username,
             "Đã hoàn thành nhiệm vụ",
             f"Bạn đã hoàn thành: {title}.",

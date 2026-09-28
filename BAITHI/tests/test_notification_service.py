@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from fastapi.testclient import TestClient
 
@@ -92,6 +93,31 @@ def test_web_push_routes_serve_worker_and_register_student_token(tmp_path, monke
     assert registered.json()["registered_desktop_devices"] == 1
 
 
+def test_create_assignment_persists_vietnam_due_time(tmp_path, monkeypatch):
+    monkeypatch.setattr("auth_service.USERS_FILE", tmp_path / "users.json")
+    monkeypatch.setattr("owner_service.USAGE_FILE", tmp_path / "feature_usage.json")
+    monkeypatch.setattr("database.study_repository.data_file", lambda name: tmp_path / name)
+    monkeypatch.setenv("STUDYSYNC_SESSION_SECRET", "test-session-secret-with-at-least-32-chars")
+    register_user("student-time", "Pass1234", "student", "Học sinh")
+    from owner_auth import create_user_token
+    token = create_user_token("student-time", "student")
+    client = TestClient(app)
+
+    response = client.post("/api/assignments", headers={
+        "Authorization": f"Bearer {token}",
+    }, json={
+        "title": "Bài Toán",
+        "subject": "Toán",
+        "due_date": "2026-09-30",
+        "due_time": "20:45:00",
+        "priority": "Cao",
+        "username": "student-time",
+    })
+
+    assert response.status_code == 200
+    assert response.json()["assignment"]["due_date"] == "2026-09-30T20:45:00+07:00"
+
+
 def test_push_due_endpoint_requires_cron_secret(monkeypatch):
     monkeypatch.setenv("PUSH_CRON_SECRET", "test-secret")
     monkeypatch.setattr("web_app.send_due_task_reminders", lambda: [])
@@ -103,7 +129,7 @@ def test_push_due_endpoint_requires_cron_secret(monkeypatch):
     assert response.json() == {"reminders": []}
 
 
-def test_due_task_push_is_sent_once_per_user_and_deadline(tmp_path, monkeypatch):
+def test_due_task_pushes_cover_four_time_offsets_once_each(tmp_path, monkeypatch):
     subscriptions = tmp_path / "web_push_subscriptions.json"
     reminder_state = tmp_path / "push_reminder_state.json"
     monkeypatch.setattr("backend.notification_service.WEB_PUSH_SUBSCRIPTIONS_FILE", subscriptions)
@@ -113,9 +139,15 @@ def test_due_task_push_is_sent_once_per_user_and_deadline(tmp_path, monkeypatch)
         lambda name: tmp_path / name,
     )
 
-    register_user_web_token("student-b", "desktop-token-2")
     from bus.study_bus import StudyBus
-    StudyBus().add_assignment("Bài Toán", "Toán", date(2026, 9, 28), "Cao", "student-a")
+    zone = ZoneInfo("Asia/Ho_Chi_Minh")
+    now = datetime(2026, 9, 27, 12, 0, tzinfo=zone)
+    offsets = [timedelta(days=1), timedelta(hours=1), timedelta(minutes=10), timedelta(minutes=5)]
+    for index, offset in enumerate(offsets):
+        due_at = now + offset
+        StudyBus().repository.add_assignment(
+            f"Bài {index}", "Toán", due_at.isoformat(), "Cao", "student-a"
+        )
 
     sent = []
     monkeypatch.setattr(
@@ -124,10 +156,25 @@ def test_due_task_push_is_sent_once_per_user_and_deadline(tmp_path, monkeypatch)
     )
     register_user_web_token("student-a", "desktop-token-1")
 
-    first = send_due_task_reminders(today=date(2026, 9, 27))
-    second = send_due_task_reminders(today=date(2026, 9, 27))
+    first = send_due_task_reminders(now=now)
+    second = send_due_task_reminders(now=now)
 
-    assert len(first) == 1 and first[0]["sent"] is True
+    assert len(first) == 4 and all(item["sent"] for item in first)
     assert second == []
-    assert len(sent) == 1
-    assert sent[0][0] == "student-a"
+    assert len(sent) == 4
+    assert all(item[0] == "student-a" for item in sent)
+    assert {item[1] for item in sent} == {
+        "Nhiệm vụ còn 1 ngày",
+        "Nhiệm vụ còn 1 giờ",
+        "Nhiệm vụ còn 10 phút",
+        "Nhiệm vụ còn 5 phút",
+    }
+
+
+def test_legacy_date_only_deadline_uses_end_of_day():
+    from backend.notification_service import _parse_assignment_due_at
+
+    due_at = _parse_assignment_due_at("2026-09-30")
+
+    assert due_at is not None
+    assert due_at.isoformat() == "2026-09-30T23:59:00+07:00"

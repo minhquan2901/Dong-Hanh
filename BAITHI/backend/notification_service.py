@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 import hashlib
 import os
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import firebase_admin
 import requests
@@ -14,6 +15,7 @@ from firebase_admin import credentials, messaging
 
 from bus.study_bus import StudyBus
 from data_storage import data_file, write_json_atomic
+from db import load_document, save_document
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
@@ -35,6 +37,29 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER or "noreply@studysync.local")
+STUDY_TIMEZONE = ZoneInfo("Asia/Ho_Chi_Minh")
+REMINDER_MILESTONES = (
+    (timedelta(days=1), "Nhiệm vụ còn 1 ngày"),
+    (timedelta(hours=1), "Nhiệm vụ còn 1 giờ"),
+    (timedelta(minutes=10), "Nhiệm vụ còn 10 phút"),
+    (timedelta(minutes=5), "Nhiệm vụ còn 5 phút"),
+)
+
+
+def _parse_assignment_due_at(value: Any) -> datetime | None:
+    raw_value = str(value or "").strip()
+    if not raw_value:
+        return None
+    try:
+        if "T" not in raw_value and " " not in raw_value:
+            legacy_date = date.fromisoformat(raw_value)
+            return datetime.combine(legacy_date, time(23, 59), STUDY_TIMEZONE)
+        parsed = datetime.fromisoformat(raw_value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=STUDY_TIMEZONE)
+    return parsed.astimezone(STUDY_TIMEZONE)
 
 def _ensure_firebase_app() -> bool:
     try:
@@ -377,8 +402,11 @@ def send_web_push_to_user(
     ]
 
 
-def send_due_task_reminders(today: date | None = None) -> list[dict[str, Any]]:
-    target_day = (today or date.today()) + timedelta(days=1)
+def send_due_task_reminders(now: datetime | None = None) -> list[dict[str, Any]]:
+    current_time = now or datetime.now(STUDY_TIMEZONE)
+    if current_time.tzinfo is None:
+        current_time = current_time.replace(tzinfo=STUDY_TIMEZONE)
+    current_time = current_time.astimezone(STUDY_TIMEZONE)
     study = StudyBus()
     with study.repository._connect() as conn:
         assignments = [
@@ -386,43 +414,54 @@ def send_due_task_reminders(today: date | None = None) -> list[dict[str, Any]]:
                 "SELECT * FROM assignments WHERE owner_username != '' ORDER BY due_date"
             ).fetchall()
         ]
-    sent_state = _read_json(PUSH_REMINDER_STATE_FILE, {})
+    sent_state = load_document("push_reminder_state", {}, "trạng thái nhắc hạn")
     if not isinstance(sent_state, dict):
         sent_state = {}
 
     results: list[dict[str, Any]] = []
     changed = False
     for task in assignments:
-        if task.get("completed"):
+        if bool(task.get("completed")):
             continue
-        try:
-            due_date = datetime.fromisoformat(str(task.get("due_date", ""))).date()
-        except ValueError:
+        due_at = _parse_assignment_due_at(task.get("due_date"))
+        if due_at is None:
             continue
-        if due_date != target_day:
+        remaining = due_at - current_time
+        if remaining <= timedelta(0):
             continue
 
         username = str(task.get("owner_username", "")).strip()
         if not username:
             continue
         task_id = str(task.get("id", ""))
-        reminder_key = f"{username}|{task_id}|{target_day.isoformat()}"
-        if sent_state.get(reminder_key):
-            continue
-        token_results = send_web_push_to_user(
-            username,
-            "Nhiệm vụ còn 1 ngày",
-            f"{task.get('title', 'Nhiệm vụ')} · {task.get('subject', '')} · hạn {target_day:%d/%m/%Y}.",
-            "/student#assignments",
-        )
-        was_sent = any(item.get("status") == "sent" for item in token_results)
-        results.append({"username": username, "task_id": task_id, "sent": was_sent, "devices": len(token_results)})
-        if was_sent:
-            sent_state[reminder_key] = datetime.now().isoformat(timespec="seconds")
-            changed = True
+        for offset, title in REMINDER_MILESTONES:
+            lower_bound = max(offset - timedelta(minutes=5), timedelta(0))
+            if not lower_bound < remaining <= offset:
+                continue
+            reminder_key = f"{username}|{task_id}|{due_at.isoformat()}|{int(offset.total_seconds())}"
+            if sent_state.get(reminder_key):
+                break
+            token_results = send_web_push_to_user(
+                username,
+                title,
+                f"{task.get('title', 'Nhiệm vụ')} · {task.get('subject', '')} · hạn {due_at:%d/%m/%Y %H:%M}.",
+                "/student#assignments",
+            )
+            was_sent = any(item.get("status") == "sent" for item in token_results)
+            results.append({
+                "username": username,
+                "task_id": task_id,
+                "milestone_seconds": int(offset.total_seconds()),
+                "sent": was_sent,
+                "devices": len(token_results),
+            })
+            if was_sent:
+                sent_state[reminder_key] = current_time.isoformat(timespec="seconds")
+                changed = True
+            break
 
     if changed:
-        _write_json(PUSH_REMINDER_STATE_FILE, sent_state)
+        save_document("push_reminder_state", sent_state)
     return results
 
 
