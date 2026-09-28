@@ -67,20 +67,25 @@ Tính năng AI đang tạm tắt. Không cần API key để chạy StudySync.
 4. Chọn repository, branch và file chính `parent_app.py` nếu deploy bản Streamlit.
 5. Bấm **Deploy**. Streamlit sẽ cấp một đường link công khai cho website.
 
-## Push notification trên máy tính
+## Push notification trên máy tính và điện thoại
 
-Ứng dụng hỗ trợ Firebase Cloud Messaging (FCM) trên trình duyệt desktop. Push nền cần HTTPS, quyền thông báo, VAPID key và Firebase service account. Điện thoại không được đăng ký nhận push trong giao diện hiện tại.
+Ứng dụng hỗ trợ Firebase Cloud Messaging (FCM) trên trình duyệt desktop và trên điện thoại thông qua PWA. Push nền cần HTTPS, quyền thông báo, VAPID key và Firebase service account.
+
+Trên điện thoại phải **cài app trước**, nếu không thì thông báo chỉ tới khi tab còn mở:
+
+- **Android (Chrome)**: menu ⋮ → *Cài app*, sau đó mở lại từ màn hình chính.
+- **iPhone (Safari)**: nút Chia sẻ → *Thêm vào Màn hình chính*, sau đó mở lại từ màn hình chính. Cần iOS 16.4 trở lên và chỉ Safari hỗ trợ.
 
 Khai báo các biến trong môi trường deploy, không commit giá trị bí mật:
 
 - `FCM_ENABLED=true`
-- `FIREBASE_PROJECT_ID`
+- `FIREBASE_PROJECT_ID` (ví dụ `file-85963`)
 - `FIREBASE_VAPID_KEY` (Firebase Console → Project Settings → Cloud Messaging → Web Push certificates)
-- `FIREBASE_SERVICE_ACCOUNT_JSON` (nội dung JSON service account; giữ riêng trong Render Environment)
+- `FIREBASE_SERVICE_ACCOUNT_JSON` (nội dung JSON service account ghi thành **một dòng**; giữ riêng trong Render Environment, tuyệt đối không commit)
 - `PUBLIC_APP_URL` (URL HTTPS của ứng dụng Render)
 - `PUSH_CRON_SECRET` (chuỗi ngẫu nhiên dài để bảo vệ endpoint nhắc deadline)
 
-Sau khi bật push trên máy tính, trình duyệt đăng ký service worker và gắn token FCM với tài khoản học sinh. Khi nhiệm vụ được thêm/hoàn thành hoặc thời khóa biểu thay đổi, máy tính đã đăng ký sẽ nhận push. Workflow `.github/workflows/desktop-push-reminders.yml` chạy hằng ngày lúc 21:00 giờ Việt Nam để gửi nhắc các nhiệm vụ đến hạn ngày hôm sau. Thêm repository secrets `PUSH_CRON_URL` (ví dụ `https://dong-hanh.onrender.com`) và `PUSH_CRON_SECRET` trong GitHub để bật lịch này.
+Sau khi bật push, trình duyệt đăng ký service worker và gắn token FCM với tài khoản học sinh. Khi nhiệm vụ được thêm/hoàn thành hoặc thời khóa biểu thay đổi, thiết bị đã đăng ký sẽ nhận push. Workflow `.github/workflows/desktop-push-reminders.yml` chạy hằng ngày lúc 21:00 giờ Việt Nam để gửi nhắc các nhiệm vụ đến hạn ngày hôm sau. Thêm repository secrets `PUSH_CRON_URL` (ví dụ `https://dong-hanh.onrender.com`) và `PUSH_CRON_SECRET` trong GitHub để bật lịch này.
 
 ### Giữ tài khoản và dữ liệu sau deploy/restart
 

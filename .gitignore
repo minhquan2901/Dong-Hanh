@@ -4,6 +4,8 @@
 !**/.env.example
 **/secrets.toml
 **/firebase-key*.json
+**/*firebase-adminsdk*.json
+**/*service-account*.json
 
 # Python and JavaScript environments/caches
 **/.venv/

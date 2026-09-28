@@ -378,7 +378,8 @@ def web_push_config() -> dict[str, bool | str]:
     return {
         "vapid_key": FIREBASE_VAPID_KEY,
         "ready": firebase_push_ready(),
-        "desktop_only": True,
+        # Da ho tro ca dien thoai qua PWA; truong hop nay giu de tuong thich.
+        "desktop_only": False,
     }
 
 
