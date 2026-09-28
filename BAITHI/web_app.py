@@ -43,7 +43,7 @@ from owner_auth import (
 )
 from owner_service import get_owner_overview, list_managed_users, managed_user_by_id, record_successful_feature_use, set_managed_user_active
 from data_storage import account_data_status
-from db import storage_status
+from db import is_postgres, load_document, storage_status
 from feedback_service import create_report, list_reports, mark_report_read
 
 ROOT = Path(__file__).resolve().parent
@@ -53,6 +53,21 @@ STATIC_DIR.mkdir(parents=True, exist_ok=True)
 app = FastAPI(title="StudySync Unified App")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(ROOT / "templates"))
+
+
+@app.on_event("startup")
+def warm_up_database() -> None:
+    """Mo ket noi Neon va nap san danh sach tai khoan khi app khoi dong.
+
+    Neon scale-to-zero nen lan ket noi dau tien rat cham (2-5 giay). Nap san
+    luc khoi dong giup nguoi dung khong phai doi mot lan dang nhap.
+    """
+    if not is_postgres():
+        return
+    try:
+        load_document("users", {"users": []}, "tai khoan")
+    except Exception:  # pragma: no cover - app van khoi dong duoc neu DB loi
+        pass
 
 
 class AuthPayload(BaseModel):

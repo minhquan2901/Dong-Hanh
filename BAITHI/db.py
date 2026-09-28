@@ -13,6 +13,7 @@ import json
 import os
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,13 @@ DOCUMENT_LOCK = threading.RLock()
 _POOL: Any = None
 _POOL_LOCK = threading.Lock()
 _DB_LOCK = threading.RLock()
+
+# Neon tu tat computer khi khong co request (scale to zero sau 5 phut).
+# Lan mo dau tien sau khi tinh la co the cham 2-5 giay, vuot qua thoi gian cho
+# phep cua Render nen nguoi dung thay du dung mat khau cung bi tu choi.
+# Giu mot ban trong bo nho de phan lon cac lan doc deu ra duoc ngay.
+USERS_CACHE_TTL_SECONDS = 60.0
+_USERS_CACHE: dict[str, Any] = {"value": None, "expires": 0.0}
 
 # Tên biến trong module dịch vụ giữ đường dẫn file tĩnh.
 # Khi test monkeypatch các biến này, dữ liệu sẽ ghi vào thư mục tạm.
@@ -54,6 +62,8 @@ def _init_pool() -> Any:
                 min_size=1,
                 max_size=5,
                 kwargs={"row_factory": dict_row},
+                timeout=10.0,
+                max_idle=300.0,
                 open=True,
             )
             with _POOL.connection() as conn:
@@ -108,13 +118,42 @@ def _postgres_save(key: str, value: Any) -> None:
         conn.commit()
 
 
+def clear_cache(key: str | None = None) -> None:
+    """Xoa cache trong bo nho (dung ngay sau khi ghi du lieu)."""
+    with DOCUMENT_LOCK:
+        if key is None or key == "users":
+            _USERS_CACHE["value"] = None
+            _USERS_CACHE["expires"] = 0.0
+
+
+def _cache_read(key: str) -> tuple[bool, Any]:
+    if key != "users" or not is_postgres():
+        return False, None
+    now = time.monotonic()
+    if _USERS_CACHE["value"] is not None and _USERS_CACHE["expires"] > now:
+        return True, _USERS_CACHE["value"]
+    return False, None
+
+
+def _cache_write(key: str, value: Any) -> None:
+    if key != "users" or not is_postgres():
+        return
+    _USERS_CACHE["value"] = value
+    _USERS_CACHE["expires"] = time.monotonic() + USERS_CACHE_TTL_SECONDS
+
+
 def load_document(key: str, default: Any, label: str | None = None) -> Any:
     """Đọc một tài liệu. Trả về `default` nếu chưa có dữ liệu."""
     name = label or key
     with DOCUMENT_LOCK:
+        hit, cached = _cache_read(key)
+        if hit:
+            return cached
         if is_postgres():
             value = _postgres_load(key)
-            return default if value is None else value
+            result = default if value is None else value
+            _cache_write(key, result)
+            return result
         path = _document_path(key)
         if not path.exists():
             return default
@@ -129,6 +168,9 @@ def save_document(key: str, value: Any) -> None:
     with DOCUMENT_LOCK:
         if is_postgres():
             _postgres_save(key, value)
+            # Nap lai bang gia tri vua ghi, khong xoa cache: xoa o day se lam
+            # lan doc sau day quay ve database va cham.
+            _cache_write(key, value)
             return
         backup_critical_file(f"{key}.json")
         write_json_atomic(_document_path(key), value)

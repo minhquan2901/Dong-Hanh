@@ -122,6 +122,7 @@ def test_postgres_backend_uses_documents_table(monkeypatch):
     log = []
     monkeypatch.setattr(db, "DATABASE_URL", "postgresql://u:p@host/db")
     monkeypatch.setattr(db, "_POOL", FakePool(log, [{"payload": {"users": []}}]))
+    db.clear_cache("users")
 
     db.save_document("users", {"users": [{"username": "hs01"}]})
 
@@ -136,6 +137,7 @@ def test_postgres_backend_loads_payload(monkeypatch):
     monkeypatch.setattr(
         db, "_POOL", FakePool(log, [{"payload": {"users": [{"username": "hs02"}]}}])
     )
+    db.clear_cache("users")
 
     loaded = db.load_document("users", {"users": []})
 
@@ -183,10 +185,54 @@ def test_postgres_backend_reads_schedule_as_dicts(monkeypatch, tmp_path):
     assert "%s" not in selects[0][0].split("WHERE")[0]
 
 
+def test_postgres_cache_avoids_repeat_reads(monkeypatch):
+    """Neon cham luc moi tinh; doc lai trong TTL phai ra khoi database."""
+    log = []
+    monkeypatch.setattr(db, "DATABASE_URL", "postgresql://u:p@host/db")
+    monkeypatch.setattr(
+        db, "_POOL", FakePool(log, [{"payload": {"users": [{"username": "hs01"}]}}])
+    )
+    db.clear_cache("users")
+
+    for _ in range(5):
+        db.load_document("users", {"users": []})
+
+    selects = [item for item in log if "SELECT payload" in item[0]]
+    assert len(selects) == 1, "phai chi doc database mot lan trong khoang cache"
+
+
+def test_postgres_cache_cleared_after_write(monkeypatch):
+    log = []
+    monkeypatch.setattr(db, "DATABASE_URL", "postgresql://u:p@host/db")
+    monkeypatch.setattr(db, "_POOL", FakePool(log, [{"payload": {"users": []}}]))
+    db.clear_cache("users")
+
+    db.load_document("users", {"users": []})
+    db.save_document("users", {"users": [{"username": "moi"}]})
+    after = db.load_document("users", {"users": []})
+
+    assert after["users"][0]["username"] == "moi"
+
+
+def test_postgres_cache_not_used_for_file_backend(monkeypatch, tmp_path):
+    _isolate_file_backend(tmp_path, monkeypatch)
+    db.save_document("users", {"users": [{"username": "tu_cache"}]})
+
+    (tmp_path / "persistent" / "users.json").write_text(
+        '{"users": [{"username": "tu_file"}]}', encoding="utf-8"
+    )
+
+    # File backend khong dung cache nen phai thay doi ngay.
+    loaded = db.load_document("users", {"users": []})
+    assert loaded["users"][0]["username"] == "tu_file"
+
+
 def test_account_data_status_reads_postgres(monkeypatch):
     monkeypatch.setattr(db, "DATABASE_URL", "postgresql://u:p@host/db")
     monkeypatch.setattr(db, "_POOL", FakePool([], [{"payload": {"users": [{"username": "a"}, {"username": "b"}]}}]))
     monkeypatch.setenv("STUDYSYNC_SESSION_SECRET", "k" * 40)
+    # Xoa cache de lan goi nay that su doc tu database, khong dung ban da nap truoc.
+    db.clear_cache("users")
 
     status = data_storage.account_data_status()
 
