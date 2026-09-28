@@ -348,8 +348,8 @@ def send_fcm_message(
     try:
         webpush = messaging.WebpushConfig(
             notification=messaging.WebpushNotification(
-                icon=f"{PUBLIC_APP_URL}/static/studysync-icon.svg",
-                badge=f"{PUBLIC_APP_URL}/static/studysync-icon.svg",
+                icon=f"{PUBLIC_APP_URL}/static/studysync-icon-v2-192.png",
+                badge=f"{PUBLIC_APP_URL}/static/studysync-icon-v2-72.png",
             ),
             fcm_options=messaging.WebpushFCMOptions(link=web_link or f"{PUBLIC_APP_URL}/student"),
         )

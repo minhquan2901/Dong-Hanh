@@ -151,7 +151,7 @@ export function showBrowserNotification(title, body, payload = {}) {
 
   return new Notification(title, {
     body,
-    icon: payload.notification?.icon || "/static/studysync-icon.svg",
+    icon: payload.notification?.icon || "/static/studysync-icon-v2-192.png",
     data: payload.data || {},
   });
 }
@@ -163,3 +163,4 @@ export async function initializeFirebaseNotifications() {
 }
 
 export { app, firebaseConfig };
+

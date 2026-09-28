@@ -9,10 +9,10 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="StudySync" />
-    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png" />
-    <link rel="icon" href="/static/studysync-icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/studysync-apple-touch-icon-v2.png" />
+    <link rel="icon" href="/static/studysync-icon-v2-192.png" type="image/png" />
     <title>StudySync | Học sinh</title>
-    <link rel="icon" href="/static/studysync-icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/static/studysync-icon-v2-192.png" type="image/png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700&family=Nunito+Sans:wght@400;600;700;800&display=swap&subset=vietnamese" rel="stylesheet" />
@@ -581,7 +581,7 @@
       function showWebToast(title, message) {
         const toast = document.createElement('div');
         toast.className = 'web-toast';
-        toast.innerHTML = `<div class="toast-content"><img src="/static/studysync-icon.svg" alt="" /><div><strong>${title}</strong><p>${message}</p></div></div><button type="button" aria-label="Đóng">×</button>`;
+        toast.innerHTML = `<div class="toast-content"><img src="/static/studysync-icon-v2-72.png" alt="" /><div><strong>${title}</strong><p>${message}</p></div></div><button type="button" aria-label="Đóng">×</button>`;
         toast.querySelector('button').addEventListener('click', () => toast.remove());
         toastStack.appendChild(toast);
         window.setTimeout(() => toast.remove(), 6500);
@@ -595,7 +595,7 @@
           seen.push(key);
           showWebToast(alert.title, alert.message);
           if (!isPhoneBrowser && 'Notification' in window && Notification.permission === 'granted') {
-            new Notification(alert.title, { body: alert.message, icon: '/static/studysync-icon.svg', badge: '/static/studysync-icon.svg' });
+            new Notification(alert.title, { body: alert.message, icon: '/static/studysync-icon-v2-192.png', badge: '/static/studysync-icon-v2-72.png' });
           }
         });
         localStorage.setItem(seenAlertsKey, JSON.stringify(seen.slice(-30)));

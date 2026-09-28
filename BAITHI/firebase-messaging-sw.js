@@ -20,8 +20,8 @@ if (firebaseConfig.apiKey && firebaseConfig.projectId) {
     const title = payload.notification?.title || 'StudySync';
     const options = {
       body: payload.notification?.body || '',
-      icon: '/static/studysync-icon.svg',
-      badge: '/static/studysync-icon.svg',
+      icon: '/static/studysync-icon-v2-192.png',
+      badge: '/static/studysync-icon-v2-72.png',
       data: { url: payload.data?.url || payload.fcmOptions?.link || '/student' },
     };
     self.registration.showNotification(title, options);

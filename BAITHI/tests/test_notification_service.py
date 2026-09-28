@@ -63,6 +63,7 @@ def test_web_push_routes_serve_worker_and_register_student_token(tmp_path, monke
 
     manifest = client.get("/manifest.json")
     student_page = client.get("/student")
+    apple_icon = client.get("/static/studysync-apple-touch-icon-v2.png")
     worker = client.get("/firebase-messaging-sw.js")
     module = client.get("/firebase-notifications.js")
     registered = client.post("/api/push/register", json={
@@ -72,8 +73,16 @@ def test_web_push_routes_serve_worker_and_register_student_token(tmp_path, monke
     assert manifest.status_code == 200
     assert manifest.headers["content-type"].startswith("application/manifest+json")
     assert manifest.json()["display"] == "standalone"
+    assert manifest.json()["name"] == "StudySync"
     assert manifest.json()["start_url"] == "/student"
+    for icon in manifest.json()["icons"]:
+        icon_response = client.get(icon["src"])
+        assert icon_response.status_code == 200
+        assert icon_response.headers["content-type"].startswith("image/png")
     assert 'rel="manifest" href="/manifest.json"' in student_page.text
+    assert 'studysync-apple-touch-icon-v2.png' in student_page.text
+    assert apple_icon.status_code == 200
+    assert apple_icon.headers["content-type"].startswith("image/png")
     assert worker.status_code == 200
     assert "onBackgroundMessage" in worker.text
     assert module.status_code == 200
