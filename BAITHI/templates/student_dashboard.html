@@ -89,6 +89,9 @@
       .brand { display: inline-flex; align-items: center; gap: 12px; font-weight: 800; }
       .brand-badge { width: 38px; height: 38px; border-radius: 12px; background: linear-gradient(135deg, var(--primary), #60a5fa); color: #fff; display: grid; place-items: center; box-shadow: 0 8px 18px rgba(37, 99, 235, .22); }
       .user-pill { display: flex; align-items: center; gap: 12px; }
+      .user-identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
+      .user-identity > div:last-child { min-width: 0; }
+      .user-actions { display: flex; align-items: center; gap: 12px; }
       .avatar { width: 38px; height: 38px; border-radius: 50%; background: #dfeeff; color: var(--primary); display: grid; place-items: center; font-weight: 700; }
       .logout, .theme-toggle { padding: 9px 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--text); cursor: pointer; transition: transform .18s ease, border-color .18s ease, color .18s ease; }
       .logout:hover, .theme-toggle:hover { transform: translateY(-2px); border-color: var(--primary); color: var(--primary); }
@@ -221,11 +224,11 @@
       }
       @media (max-width: 700px) {
         .topbar { align-items: flex-start; flex-direction: column; gap: 10px; padding: 12px 14px; }
-        .user-pill { width: 100%; display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 7px; }
-        .user-pill > button { min-height: 42px; padding: 8px 10px; font-size: .78rem; }
-        #theme-toggle { grid-column: 1 / 2; }
-        #web-notification-toggle { grid-column: 2 / 3; }
-        .user-pill .logout { grid-column: 3 / 4; }
+        .user-pill { width: 100%; align-items: stretch; flex-direction: column; gap: 10px; }
+        .user-identity { width: 100%; }
+        .user-identity #user-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .user-actions { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+        .user-actions > * { width: 100%; min-width: 0; min-height: 44px; display: flex; align-items: center; justify-content: center; padding: 8px; text-align: center; font-size: .78rem; line-height: 1.2; overflow-wrap: anywhere; }
         .container { padding: 14px 12px 28px; }
         .hero { flex-direction: column; align-items: stretch; padding: 18px; border-radius: 16px; }
         .hero > div:last-child { justify-content: flex-start !important; }
@@ -263,8 +266,8 @@
         .pwa-install-guide { align-items: flex-start; flex-direction: column; }
       }
       @media (max-width: 380px) {
-        .user-pill { grid-template-columns: 34px minmax(0, 1fr) auto; }
-        .user-pill > button { padding: 7px; font-size: .72rem; }
+        .user-actions { gap: 6px; }
+        .user-actions > * { padding: 7px 5px; font-size: .72rem; }
         .taskbar a { font-size: .68rem; }
         .stats { grid-template-columns: 1fr 1fr; }
       }
@@ -274,15 +277,19 @@
     <header class="topbar">
       <div class="brand"><span class="brand-badge">S</span> StudySync</div>
       <div class="user-pill">
-        <div class="avatar" id="avatar">HS</div>
-        <div>
-          <div id="user-name">Học sinh</div>
-          <small id="user-role">Student</small>
+        <div class="user-identity">
+          <div class="avatar" id="avatar">HS</div>
+          <div>
+            <div id="user-name">Học sinh</div>
+            <small id="user-role">Student</small>
+          </div>
         </div>
-        <button id="theme-toggle" class="theme-toggle" type="button">Chế độ tối</button>
-        <button id="web-notification-toggle" class="web-notification-toggle" type="button">Bật thông báo máy tính</button>
-        <a class="logout" href="/account">Tài khoản / Đổi mật khẩu</a>
-        <button class="logout" type="button" onclick="logout()">Đăng xuất</button>
+        <div class="user-actions">
+          <button id="theme-toggle" class="theme-toggle" type="button">Chế độ tối</button>
+          <button id="web-notification-toggle" class="web-notification-toggle" type="button">Bật thông báo máy tính</button>
+          <a class="logout" href="/account">Tài khoản / Đổi mật khẩu</a>
+          <button class="logout" type="button" onclick="logout()">Đăng xuất</button>
+        </div>
       </div>
     </header>
 
