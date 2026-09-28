@@ -449,10 +449,13 @@
 
     <script src="/static/confirm.js"></script>
     <script>
-      const user = JSON.parse(localStorage.getItem('study_sync_user') || 'null');
+      const storedUser = JSON.parse(localStorage.getItem('study_sync_user') || 'null');
       const sessionToken = localStorage.getItem('study_sync_session_token') || '';
-      if (!user || user.role !== 'student') {
-        window.location.href = '/login';
+      const user = storedUser || { username: '', role: '' };
+      if (!user.username || user.role !== 'student' || !sessionToken) {
+        localStorage.removeItem('study_sync_user');
+        localStorage.removeItem('study_sync_session_token');
+        window.location.replace('/login');
       }
 
       const avatarEl = document.getElementById('avatar');
@@ -485,6 +488,7 @@
       const toastStack = document.getElementById('toast-stack');
       const seenAlertsKey = `studysync-seen-alerts-${user.username}`;
       let deferredInstallPrompt = null;
+      let foregroundMessagesListening = false;
       const isPhoneBrowser = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
         || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
       const isIOSDevice = /iPhone|iPad|iPod/i.test(navigator.userAgent)
@@ -566,7 +570,13 @@
         try {
           const mod = await import('/firebase-notifications.js');
           await mod.enableWebNotifications(user.username);
-          mod.listenForForegroundMessages((title, body) => showWebToast(title, body));
+          if (!foregroundMessagesListening) {
+            mod.listenForForegroundMessages((title, body, payload) => {
+              showWebToast(title, body);
+              mod.showBrowserNotification(title, body, payload);
+            });
+            foregroundMessagesListening = true;
+          }
           localStorage.setItem(`studysync-web-notifications-${user.username}`, 'true');
           updateWebNotificationButton();
           showWebToast('Đã bật thông báo', mod.isDesktopBrowser()
@@ -761,6 +771,7 @@
       });
       document.getElementById('task-editor').addEventListener('submit', async (event) => {
         event.preventDefault();
+        const form = event.currentTarget;
         const payload = {
           title: document.getElementById('task-title').value.trim(),
           subject: document.getElementById('task-subject').value.trim(),
@@ -770,7 +781,7 @@
           username: user.username,
         };
         if (!(await window.studySyncConfirm.confirm(`Thêm nhiệm vụ "${payload.title}"\nMôn: ${payload.subject}\nHạn: ${payload.due_date} ${payload.due_time}`, 'Xác nhận thêm nhiệm vụ', { okText: 'Thêm nhiệm vụ' }))) return;
-        const saveButton = event.currentTarget.querySelector('[type="submit"]');
+        const saveButton = form.querySelector('[type="submit"]');
         saveButton.disabled = true;
         saveButton.textContent = 'Đang lưu...';
         try {
@@ -788,9 +799,9 @@
         assignmentsData = readStudentPersistedState().assignments;
         renderTasks(assignmentsData);
         showWebToast('Đã thêm nhiệm vụ', `Nhiệm vụ "${payload.title}" đã được lưu.`);
-        event.target.reset();
+        form.reset();
         document.getElementById('task-due-time').value = '23:59';
-        event.target.classList.remove('open');
+        document.getElementById('task-title').focus();
         showView('assignments');
         void loadDashboard().catch((error) => showWebToast('Đã lưu nhiệm vụ', error.message));
         } catch (error) {
@@ -845,6 +856,12 @@
           });
           const data = await response.json().catch(() => ({}));
           if (!response.ok) {
+            if (response.status === 401) {
+              localStorage.removeItem('study_sync_user');
+              localStorage.removeItem('study_sync_session_token');
+              window.location.replace('/login');
+              return;
+            }
             if (response.status === 404) {
               throw new Error('Tài khoản trong phiên này không còn trên máy chủ. Hãy đăng xuất rồi đăng nhập bằng tài khoản đã đăng ký trên website.');
             }

@@ -52,6 +52,12 @@ async function requestNotificationPermission() {
     throw new Error("Trình duyệt này không hỗ trợ thông báo.");
   }
 
+  if (Notification.permission === "denied") {
+    throw new Error(isIOS()
+      ? "StudySync đang bị chặn thông báo trên iPhone. Vào Cài đặt → Thông báo → StudySync và bật Cho phép thông báo. Nếu chưa thấy StudySync, hãy mở lại app từ biểu tượng Màn hình chính rồi thử lại."
+      : "Thông báo đang bị chặn. Hãy mở cài đặt quyền của trang web trong trình duyệt, cho phép Thông báo rồi tải lại trang.");
+  }
+
   const permission = await Notification.requestPermission();
   if (permission !== "granted") {
     throw new Error("Bạn chưa cấp quyền thông báo cho trình duyệt.");
