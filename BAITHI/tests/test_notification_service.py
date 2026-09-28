@@ -61,16 +61,25 @@ def test_web_push_routes_serve_worker_and_register_student_token(tmp_path, monke
     register_user("student-a", "Pass1234", "student", "Học sinh A")
     client = TestClient(app)
 
+    manifest = client.get("/manifest.json")
+    student_page = client.get("/student")
     worker = client.get("/firebase-messaging-sw.js")
     module = client.get("/firebase-notifications.js")
     registered = client.post("/api/push/register", json={
         "username": "student-a", "token": "desktop-token-1",
     })
 
+    assert manifest.status_code == 200
+    assert manifest.headers["content-type"].startswith("application/manifest+json")
+    assert manifest.json()["display"] == "standalone"
+    assert manifest.json()["start_url"] == "/student"
+    assert 'rel="manifest" href="/manifest.json"' in student_page.text
     assert worker.status_code == 200
     assert "onBackgroundMessage" in worker.text
     assert module.status_code == 200
     assert registered.status_code == 200
+    assert registered.json()["message"] == "Đã bật thông báo trên thiết bị này."
+    assert registered.json()["registered_devices"] == 1
     assert registered.json()["registered_desktop_devices"] == 1
 
 

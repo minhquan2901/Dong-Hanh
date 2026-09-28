@@ -186,6 +186,11 @@
       .reject-link { background: #fee2e2; color: #991b1b; }
       .web-notification-toggle { border: 1px solid var(--primary); border-radius: 9px; padding: 8px 11px; background: var(--primary-soft); color: var(--primary-dark); font-weight: 800; cursor: pointer; }
       .web-notification-toggle.enabled { border-color: var(--success); background: #eafaf3; color: #166534; }
+      .web-notification-toggle:disabled, .pwa-install-button:disabled { cursor: wait; opacity: .65; }
+      .pwa-install-guide { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--primary-soft); color: var(--text); }
+      .pwa-install-guide[hidden], .pwa-install-button[hidden] { display: none; }
+      .pwa-install-guide p { margin: 3px 0 0; color: var(--muted); font-size: .86rem; }
+      .pwa-install-button { flex: 0 0 auto; min-height: 38px; border: 0; border-radius: 8px; padding: 8px 12px; background: var(--primary); color: #fff; font-weight: 800; cursor: pointer; }
       .toast-stack { position: fixed; right: 20px; bottom: 20px; z-index: 30; display: grid; gap: 10px; width: min(360px, calc(100vw - 32px)); }
       .web-toast { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 15px 16px; background: var(--card); border: 1px solid var(--line); border-left: 5px solid var(--secondary); border-radius: 14px; box-shadow: 0 18px 40px rgba(15, 23, 42, .18); animation: toast-in .25s ease-out; }
       .toast-content { display: flex; align-items: flex-start; gap: 10px; }
@@ -255,6 +260,7 @@
         .link-request-actions { width: 100%; }
         .link-request-actions button { min-height: 42px; flex: 1; }
         .toast-stack { right: 10px; bottom: 10px; width: calc(100vw - 20px); }
+        .pwa-install-guide { align-items: flex-start; flex-direction: column; }
       }
       @media (max-width: 380px) {
         .user-pill { grid-template-columns: 34px minmax(0, 1fr) auto; }
@@ -279,6 +285,14 @@
         <button class="logout" type="button" onclick="logout()">Đăng xuất</button>
       </div>
     </header>
+
+    <aside class="pwa-install-guide" id="pwa-install-guide" hidden>
+      <div>
+        <strong>Cài StudySync lên điện thoại</strong>
+        <p id="pwa-install-help"></p>
+      </div>
+      <button class="pwa-install-button" id="pwa-install-button" type="button" hidden>Cài ứng dụng</button>
+    </aside>
 
     <main class="container">
       <section class="hero">
@@ -456,8 +470,51 @@
       const studentStateKey = `study_sync_student_state_${user.username}`;
       const themeToggle = document.getElementById('theme-toggle');
       const webNotificationToggle = document.getElementById('web-notification-toggle');
+      const pwaInstallGuide = document.getElementById('pwa-install-guide');
+      const pwaInstallHelp = document.getElementById('pwa-install-help');
+      const pwaInstallButton = document.getElementById('pwa-install-button');
       const toastStack = document.getElementById('toast-stack');
       const seenAlertsKey = `studysync-seen-alerts-${user.username}`;
+      let deferredInstallPrompt = null;
+      const isPhoneBrowser = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+        || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      const isIOSDevice = /iPhone|iPad|iPod/i.test(navigator.userAgent)
+        || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      const isInstalledPwa = window.matchMedia('(display-mode: standalone)').matches
+        || window.navigator.standalone === true;
+
+      function updatePwaInstallGuide() {
+        if (!isPhoneBrowser || isInstalledPwa) {
+          pwaInstallGuide.hidden = true;
+          return;
+        }
+        pwaInstallGuide.hidden = false;
+        pwaInstallHelp.textContent = isIOSDevice
+          ? 'Trên iPhone/iPad: mở bằng Safari, bấm Chia sẻ → Thêm vào Màn hình chính. Push cần iOS/iPadOS 16.4 trở lên.'
+          : 'Trên Android: có thể bật thông báo ngay trong trình duyệt; để cài app, dùng nút Cài ứng dụng hoặc menu ⋮ → Cài ứng dụng.';
+        pwaInstallButton.hidden = !deferredInstallPrompt;
+      }
+
+      window.addEventListener('beforeinstallprompt', (event) => {
+        event.preventDefault();
+        deferredInstallPrompt = event;
+        updatePwaInstallGuide();
+      });
+
+      window.addEventListener('appinstalled', () => {
+        deferredInstallPrompt = null;
+        pwaInstallGuide.hidden = true;
+      });
+
+      pwaInstallButton.addEventListener('click', async () => {
+        if (!deferredInstallPrompt) return;
+        await deferredInstallPrompt.prompt();
+        await deferredInstallPrompt.userChoice;
+        deferredInstallPrompt = null;
+        updatePwaInstallGuide();
+      });
+
+      updatePwaInstallGuide();
 
       function readStudentPersistedState() {
         try {
@@ -489,19 +546,11 @@
         webNotificationToggle.classList.toggle('enabled', enabled);
         if (enabled) {
           webNotificationToggle.textContent = 'Đã bật thông báo';
-        } else if (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)) {
-          webNotificationToggle.textContent = 'Cài app để bật thông báo';
         } else {
           webNotificationToggle.textContent = 'Bật thông báo';
         }
       }
 
-      const isPhoneBrowser = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-      // Dien thoai van duoc hien nut, nhung phai cai app truoc khi bat thong bao.
-      if (isPhoneBrowser) {
-        webNotificationToggle.textContent = 'Cài app để bật thông báo';
-        webNotificationToggle.title = 'Trên điện thoại cần cài app trước khi bật thông báo';
-      }
       updateWebNotificationButton();
       webNotificationToggle.addEventListener('click', async () => {
         webNotificationToggle.disabled = true;
@@ -512,8 +561,8 @@
           localStorage.setItem(`studysync-web-notifications-${user.username}`, 'true');
           updateWebNotificationButton();
           showWebToast('Đã bật thông báo', mod.isDesktopBrowser()
-            ? 'Thông báo có thể đến khi bạn đóng tab; hãy giữ trình duyệt chạy nền.'
-            : 'Thông báo sẽ đến cả khi bạn đã đóng app.');
+            ? 'Thông báo đã được bật trên trình duyệt này.'
+            : (mod.isIOS() ? 'Thông báo đã được bật trong app StudySync trên iPhone/iPad.' : 'Thông báo đã được bật trên điện thoại này.'));
         } catch (error) {
           showWebToast('Chưa bật được thông báo', error.message || 'Hãy kiểm tra cấu hình Firebase và quyền thông báo.');
         } finally {

@@ -394,7 +394,11 @@ def register_web_push(payload: WebPushRegistrationPayload):
         count = register_user_web_token(payload.username, payload.token)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"message": "Đã bật thông báo trên máy tính này.", "registered_desktop_devices": count}
+    return {
+        "message": "Đã bật thông báo trên thiết bị này.",
+        "registered_devices": count,
+        "registered_desktop_devices": count,
+    }
 
 
 @app.post("/api/internal/push-due")

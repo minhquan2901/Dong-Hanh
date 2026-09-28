@@ -69,14 +69,23 @@ Tính năng AI đang tạm tắt. Không cần API key để chạy StudySync.
 
 ## Push notification trên máy tính và điện thoại
 
-Ứng dụng hỗ trợ Firebase Cloud Messaging (FCM) trên trình duyệt desktop và trên điện thoại thông qua PWA. Push nền cần HTTPS, quyền thông báo, VAPID key và Firebase service account.
+Ứng dụng hỗ trợ Firebase Cloud Messaging (FCM) trên máy tính và điện thoại. Android có thể bật push từ trình duyệt; cài PWA để mở như app. Trên iPhone/iPad, push yêu cầu iOS/iPadOS 16.4 trở lên, Safari và app đã được thêm vào Màn hình chính. Push nền cần HTTPS, quyền thông báo, VAPID key và Firebase service account.
 
-Trên điện thoại phải **cài app trước**, nếu không thì thông báo chỉ tới khi tab còn mở:
+Trên Android có thể bật thông báo trực tiếp trong trình duyệt; cài PWA là tùy chọn để mở app riêng. Riêng iPhone/iPad cần cài app vào Màn hình chính trước khi đăng ký push:
 
 - **Android (Chrome)**: menu ⋮ → *Cài app*, sau đó mở lại từ màn hình chính.
 - **iPhone (Safari)**: nút Chia sẻ → *Thêm vào Màn hình chính*, sau đó mở lại từ màn hình chính. Cần iOS 16.4 trở lên và chỉ Safari hỗ trợ.
 
-Khai báo các biến trong môi trường deploy, không commit giá trị bí mật:
+#### Bật Firebase và cấu hình Render
+
+1. Trong Firebase Console, mở project `file-85963` (hoặc project tương ứng với cấu hình client trong `firebase-notifications.js` và `firebase-messaging-sw.js`). Đảm bảo Firebase Cloud Messaging API (V1) đang bật.
+2. Vào **Project settings → Cloud Messaging → Web Push certificates** và chọn **Generate key pair**. Sao chép public key VAPID.
+3. Tạo Firebase service account JSON trong **Project settings → Service accounts → Generate new private key**. Giữ file này riêng tư.
+4. Trên Render, mở service → **Environment → Add Environment Variable** và thêm các biến bên dưới. Dán toàn bộ JSON service account vào một dòng cho `FIREBASE_SERVICE_ACCOUNT_JSON`.
+5. Bấm **Save, rebuild, and deploy** (hoặc lưu rồi manual deploy). Mở `/api/push/config`; khi cấu hình đúng, kết quả phải có `ready: true` và `vapid_key` khác rỗng.
+6. Mở trang học sinh bằng HTTPS, cho phép thông báo của trình duyệt, rồi bấm **Bật thông báo**. Kiểm tra thông báo bằng cách tạo/cập nhật tác vụ hoặc thời khóa biểu.
+
+Khai báo các biến trong Render Environment, không commit giá trị bí mật:
 
 - `FCM_ENABLED=true`
 - `FIREBASE_PROJECT_ID` (ví dụ `file-85963`)

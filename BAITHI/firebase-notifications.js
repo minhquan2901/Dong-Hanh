@@ -31,6 +31,9 @@ async function initializeAnalytics() {
 
 async function initializeMessaging() {
   if (!await messagingIsSupported()) {
+    if (isIOS()) {
+      throw new Error("Thông báo trên iPhone cần iOS 16.4 trở lên, mở bằng Safari và cài StudySync vào Màn hình chính.");
+    }
     throw new Error("Trình duyệt này không hỗ trợ Firebase Cloud Messaging.");
   }
   messaging = getMessaging(app);
@@ -92,9 +95,9 @@ export function isInstalledAsApp() {
 
 function describeMobileRequirement() {
   if (isIOS()) {
-    return "Trên iPhone, hãy mở bằng Safari rồi bấm Chia sẻ → Thêm vào Màn hình chính, mở lại app từ màn hình chính rồi bật thông báo. Cần iOS 16.4 trở lên.";
+    return "Trên iPhone, hãy cập nhật iOS lên 16.4 trở lên, mở trang bằng Safari, bấm Chia sẻ → Thêm vào Màn hình chính rồi bật thông báo trong app vừa cài.";
   }
-  return "Trên điện thoại, hãy mở menu trình duyệt → Cài app (Install app), mở lại từ màn hình chính rồi bật thông báo.";
+  return "Hãy cho phép thông báo trong trình duyệt. Nếu muốn cài StudySync như app, mở menu trình duyệt → Cài ứng dụng (Install app).";
 }
 
 export async function enableWebNotifications(username) {
@@ -102,9 +105,11 @@ export async function enableWebNotifications(username) {
     throw new Error("Không xác định được tài khoản đang đăng nhập.");
   }
 
-  if (!isDesktopBrowser() && !isInstalledAsApp()) {
+  if (isIOS() && !isInstalledAsApp()) {
     throw new Error(describeMobileRequirement());
   }
+
+  await requestNotificationPermission();
 
   const configResponse = await fetch("/api/push/config", { cache: "no-store" });
   const pushConfig = await configResponse.json();
@@ -112,7 +117,6 @@ export async function enableWebNotifications(username) {
     throw new Error("Máy chủ chưa cấu hình Firebase FCM và VAPID key.");
   }
 
-  await requestNotificationPermission();
   const serviceWorkerRegistration = await registerServiceWorker();
   await initializeMessaging();
 
