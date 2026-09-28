@@ -434,6 +434,7 @@
                 <div class="action-stack">
                   <button class="mini-button ${user.is_active ? 'danger' : 'secondary'}" data-user-action="toggle" data-user-id="${user.id}">${user.is_active ? 'Khóa' : 'Mở khóa'}</button>
                   <button class="mini-button secondary" data-user-action="edit" data-user-id="${user.id}">Sửa</button>
+                  <button class="mini-button danger" data-user-action="delete" data-user-id="${user.id}">Xóa</button>
                 </div>
               </td>
             </tr>
@@ -446,6 +447,8 @@
           if (!user) return;
           if (button.dataset.userAction === 'toggle') {
             await setUserActive(user, !user.is_active);
+          } else if (button.dataset.userAction === 'delete') {
+            await deleteUser(user);
           } else {
             await editUser(user);
           }
@@ -537,6 +540,17 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ is_active: isActive }),
         });
+        await loadOwnerDashboard();
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    async function deleteUser(user) {
+      const confirmed = window.confirm(`Xóa tài khoản @${user.username} và dữ liệu học tập liên quan? Thao tác này không thể hoàn tác.`);
+      if (!confirmed) return;
+      try {
+        await ownerRequest(`/api/owner/users/${encodeURIComponent(user.id)}`, { method: 'DELETE' });
         await loadOwnerDashboard();
       } catch (error) {
         alert(error.message);

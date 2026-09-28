@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 
 from fastapi.testclient import TestClient
 
@@ -77,6 +78,35 @@ def test_owner_login_reports_missing_environment_setup_safely(monkeypatch):
     assert response.status_code == 503
     assert "OWNER_USERNAME" in response.json()["detail"]
     assert "password" not in response.json()["detail"].lower()
+
+
+def test_owner_can_delete_user_and_owned_data(tmp_path, monkeypatch):
+    configure_owner(monkeypatch, tmp_path)
+    monkeypatch.setattr("backend.notification_service.WEB_PUSH_SUBSCRIPTIONS_FILE", tmp_path / "web_tokens.json")
+    monkeypatch.setattr("database.study_repository.data_file", lambda name: tmp_path / name)
+    user = register_user("student-delete", "StudentPass1", "student", "Học sinh cần xóa", "8A1")
+    from bus.study_bus import StudyBus
+    StudyBus().add_assignment("Bài cần xóa", "Toán", date(2026, 10, 1), "Cao", "student-delete")
+    from backend.notification_service import register_user_web_token
+    register_user_web_token("student-delete", "push-token")
+    record_successful_feature_use("student-delete", "assignments")
+    client = TestClient(app)
+    login = client.post("/api/owner/login", json={
+        "username": "site-owner", "password": "A-strong-owner-password-92",
+    })
+    owner_headers = {"Authorization": f"Bearer {login.json()['token']}"}
+
+    assert client.delete(f"/api/owner/users/{user['id']}").status_code == 401
+    response = client.delete(f"/api/owner/users/{user['id']}", headers=owner_headers)
+
+    assert response.status_code == 200
+    assert client.post("/api/auth/login", json={
+        "username": "student-delete", "password": "StudentPass1",
+    }).status_code == 401
+    assert client.get("/api/owner/users", headers=owner_headers).json()["users"] == []
+    from backend.notification_service import get_user_web_tokens
+    assert get_user_web_tokens("student-delete") == []
+    assert StudyBus().assignments("student-delete") == []
 
 
 def test_only_valid_user_session_counts_feature_use(tmp_path, monkeypatch):

@@ -397,6 +397,19 @@ class StudyRepository:
                 conn.commit()
             return cursor.rowcount > 0
 
+    def delete_user_data(self, username: str) -> None:
+        owner_username = str(username or "").strip().lower()
+        if not owner_username:
+            return
+        with self._lock, self._connect() as conn:
+            if is_postgres():
+                conn.execute("DELETE FROM schedule WHERE owner_username=%s", (owner_username,))
+                conn.execute("DELETE FROM assignments WHERE owner_username=%s", (owner_username,))
+                conn.commit()
+            else:
+                conn.execute("DELETE FROM schedule WHERE owner_username=?", (owner_username,))
+                conn.execute("DELETE FROM assignments WHERE owner_username=?", (owner_username,))
+
     def add_schedule(
         self,
         subject: str,

@@ -135,6 +135,17 @@ def get_user_web_tokens(username: str) -> list[str]:
     return [str(token) for token in tokens if str(token).strip()] if isinstance(tokens, list) else []
 
 
+def remove_user_web_tokens(username: str) -> None:
+    target = str(username or "").strip()
+    if not target:
+        return
+    subscriptions = _read_json(WEB_PUSH_SUBSCRIPTIONS_FILE, {})
+    if not isinstance(subscriptions, dict) or target not in subscriptions:
+        return
+    subscriptions.pop(target, None)
+    _write_json(WEB_PUSH_SUBSCRIPTIONS_FILE, subscriptions)
+
+
 def get_web_push_usernames() -> list[str]:
     subscriptions = _read_json(WEB_PUSH_SUBSCRIPTIONS_FILE, {})
     if not isinstance(subscriptions, dict):

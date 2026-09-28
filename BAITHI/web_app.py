@@ -41,7 +41,7 @@ from owner_auth import (
     verify_owner_token,
     verify_user_token,
 )
-from owner_service import get_owner_overview, list_managed_users, managed_user_by_id, record_successful_feature_use, set_managed_user_active
+from owner_service import delete_managed_user, get_owner_overview, list_managed_users, managed_user_by_id, record_successful_feature_use, set_managed_user_active
 from data_storage import account_data_status
 from db import is_postgres, load_document, storage_status
 from feedback_service import create_report, list_reports, mark_report_read
@@ -477,6 +477,14 @@ def owner_set_user_status(
     if not set_managed_user_active(user_id, payload.is_active):
         raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
     return {"message": "Đã cập nhật trạng thái tài khoản."}
+
+
+@app.delete("/api/owner/users/{user_id}")
+def owner_delete_user(user_id: str, authorization: str | None = Header(default=None)):
+    _require_owner(authorization)
+    if not delete_managed_user(user_id):
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
+    return {"message": "Đã xóa tài khoản và dữ liệu liên quan."}
 
 
 @app.post("/api/auth/login")

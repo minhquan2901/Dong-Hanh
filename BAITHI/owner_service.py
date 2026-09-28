@@ -6,7 +6,9 @@ from threading import RLock
 from typing import Any
 from uuid import uuid4
 
-from auth_service import get_user_by_username, load_users, update_account
+from auth_service import delete_user_account, get_user_by_username, load_users, update_account
+from backend.notification_service import remove_user_web_tokens
+from bus.study_bus import StudyBus
 from data_storage import data_file
 from db import load_document, save_document
 
@@ -97,4 +99,25 @@ def set_managed_user_active(user_id: str, is_active: bool) -> bool:
     if not user:
         return False
     update_account(user["username"], is_active=is_active, by_owner=True)
+    return True
+
+
+def delete_managed_user(user_id: str) -> bool:
+    user = managed_user_by_id(user_id)
+    if not user:
+        return False
+    username = str(user.get("username", "")).strip()
+    if not delete_user_account(username):
+        return False
+    StudyBus().repository.delete_user_data(username)
+    remove_user_web_tokens(username)
+    target = username.casefold()
+    with USAGE_LOCK:
+        events = _read_usage_events()
+        remaining_events = [
+            event for event in events
+            if str(event.get("username", "")).strip().casefold() != target
+        ]
+        if len(remaining_events) != len(events):
+            save_document("feature_usage", remaining_events)
     return True

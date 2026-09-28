@@ -114,6 +114,35 @@ def save_users(users: list[dict[str, Any]]) -> None:
     save_document("users", {"users": users})
 
 
+def delete_user_account(username: str) -> bool:
+    target = str(username or "").strip().casefold()
+    if not target:
+        return False
+    with USERS_LOCK:
+        users = load_users()
+        remaining = [
+            user for user in users
+            if str(user.get("username", "")).strip().casefold() != target
+        ]
+        if len(remaining) == len(users):
+            return False
+        for user in remaining:
+            if str(user.get("parent_username", "")).strip().casefold() == target:
+                user.pop("parent_username", None)
+        save_users(remaining)
+
+    with LINK_REQUESTS_LOCK:
+        requests = _load_link_requests()
+        remaining_requests = [
+            item for item in requests
+            if str(item.get("parent_username", "")).strip().casefold() != target
+            and str(item.get("student_username", "")).strip().casefold() != target
+        ]
+        if len(remaining_requests) != len(requests):
+            _save_link_requests(remaining_requests)
+    return True
+
+
 def get_user_by_username(username: str) -> dict[str, Any] | None:
     user_name = (username or "").strip()
     if not user_name:
