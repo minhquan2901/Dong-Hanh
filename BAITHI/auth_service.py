@@ -18,6 +18,44 @@ LINK_REQUESTS_FILE = data_file("link_requests.json")
 USERS_LOCK = RLock()
 LINK_REQUESTS_LOCK = RLock()
 
+# Mat khau duoc luu duoi dang hash PBKDF2, khong luu ban ro.
+# Dung PBKDF2 de doi xung voi cach luu PIN, khong them thu vien ngoai.
+PASSWORD_ITERATIONS = 200_000
+_PASSWORD_PREFIX = "pbkdf2_sha256$"
+
+
+def hash_password(password: str) -> str:
+    """Tra ve chuoi 'pbkdf2_sha256$<salt_hex>$<hash_hex>'."""
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", str(password or "").encode("utf-8"), salt, PASSWORD_ITERATIONS
+    )
+    return f"{_PASSWORD_PREFIX}{salt.hex()}${digest.hex()}"
+
+
+def is_hashed_password(value: str) -> bool:
+    return str(value or "").startswith(_PASSWORD_PREFIX)
+
+
+def verify_password(stored: str, candidate: str) -> bool:
+    """So sanh mat khau nhap voi gia tri da luu (hash hoac van con ban ro)."""
+    text = str(stored or "")
+    if not text:
+        return False
+    if not is_hashed_password(text):
+        # Truong hop du lieu cu chua duoc migrate: van so sanh truc tiep.
+        return hmac.compare_digest(text, str(candidate or ""))
+    try:
+        _, salt_hex, digest_hex = text.split("$", 2)
+        salt = bytes.fromhex(salt_hex)
+        expected = bytes.fromhex(digest_hex)
+    except (ValueError, TypeError):
+        return False
+    actual = hashlib.pbkdf2_hmac(
+        "sha256", str(candidate or "").encode("utf-8"), salt, PASSWORD_ITERATIONS
+    )
+    return hmac.compare_digest(actual, expected)
+
 
 def _ensure_store() -> None:
     USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -287,7 +325,7 @@ def register_user(
         user = {
             "id": f"user-{uuid4().hex}",
             "username": clean_username,
-            "password": clean_password,
+            "password": hash_password(clean_password),
             "role": clean_role,
             "full_name": clean_full_name or clean_username,
             "class_name": clean_class,
@@ -306,10 +344,20 @@ def authenticate_user(username: str, password: str) -> dict[str, Any] | None:
     user = get_user_by_username(username)
     if not user:
         return None
-    if str(user.get("password", "")) != str(password):
+    if not verify_password(user.get("password", ""), password):
         return None
     if not user.get("is_active", True):
         return None
+    # Nâng du liệu lên hash ngay lan dang nhap thanh cong, thay vi ghi script migrate.
+    if not is_hashed_password(user.get("password", "")):
+        with USERS_LOCK:
+            current = load_users()
+            for item in current:
+                if str(item.get("username", "")).strip().lower() == str(username).strip().lower():
+                    item["password"] = hash_password(password)
+                    save_users(current)
+                    user = item
+                    break
     return user
 
 
@@ -323,7 +371,7 @@ def set_secondary_pin(username: str, password: str, pin: str) -> bool:
         for user in users:
             if str(user.get("username", "")).strip().lower() != str(username or "").strip().lower():
                 continue
-            if str(user.get("password", "")) != str(password or ""):
+            if not verify_password(user.get("password", ""), password or ""):
                 raise ValueError("Mật khẩu hiện tại không đúng.")
             salt = secrets.token_bytes(16)
             pin_hash = hashlib.pbkdf2_hmac("sha256", clean_pin.encode("utf-8"), salt, 200_000)
@@ -356,7 +404,7 @@ def set_pin_login_enabled(username: str, password: str, enabled: bool, pin: str 
         for user in users:
             if str(user.get("username", "")).strip().lower() != str(username or "").strip().lower():
                 continue
-            if str(user.get("password", "")) != str(password or ""):
+            if not verify_password(user.get("password", ""), password or ""):
                 raise ValueError("Mật khẩu hiện tại không đúng.")
             has_pin = bool(user.get("secondary_pin_hash") and user.get("secondary_pin_salt"))
             if enabled and not has_pin:
@@ -389,8 +437,8 @@ def update_account(username: str, *, full_name: str | None = None,
                 continue
             if not by_owner and not user.get("is_active", True):
                 raise ValueError("Tài khoản đã bị khóa.")
-            if new_password is not None and not by_owner and not hmac.compare_digest(
-                str(user.get("password", "")), str(current_password or "")
+            if new_password is not None and not by_owner and not verify_password(
+                user.get("password", ""), current_password or ""
             ):
                 raise ValueError("Mật khẩu hiện tại không đúng.")
             if full_name is not None:
@@ -404,7 +452,7 @@ def update_account(username: str, *, full_name: str | None = None,
                 if not is_active:
                     user["session_version"] = int(user.get("session_version", 0)) + 1
             if new_password is not None:
-                user["password"] = new_password
+                user["password"] = hash_password(new_password)
                 user["session_version"] = int(user.get("session_version", 0)) + 1
             save_users(users)
             return user
