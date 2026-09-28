@@ -74,12 +74,36 @@ export function isDesktopBrowser() {
   return !/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 }
 
-export async function enableWebNotifications(username) {
-  if (!isDesktopBrowser()) {
-    throw new Error("Thông báo đẩy hiện chỉ bật trên máy tính.");
+export function isIOS() {
+  return (
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  );
+}
+
+// Thong bao duoi nen chi chay khi web da duoc cai dat nhu mot app (PWA).
+// tren iOS chi Safari cho phep cai, va phai iOS 16.4 tro len.
+export function isInstalledAsApp() {
+  return (
+    window.matchMedia("(display-mode: standalone)").matches ||
+    window.navigator.standalone === true
+  );
+}
+
+function describeMobileRequirement() {
+  if (isIOS()) {
+    return "Trên iPhone, hãy mở bằng Safari rồi bấm Chia sẻ → Thêm vào Màn hình chính, mở lại app từ màn hình chính rồi bật thông báo. Cần iOS 16.4 trở lên.";
   }
+  return "Trên điện thoại, hãy mở menu trình duyệt → Cài app (Install app), mở lại từ màn hình chính rồi bật thông báo.";
+}
+
+export async function enableWebNotifications(username) {
   if (!username) {
     throw new Error("Không xác định được tài khoản đang đăng nhập.");
+  }
+
+  if (!isDesktopBrowser() && !isInstalledAsApp()) {
+    throw new Error(describeMobileRequirement());
   }
 
   const configResponse = await fetch("/api/push/config", { cache: "no-store" });

@@ -3,6 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#2563eb" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="StudySync" />
+    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png" />
+    <link rel="icon" href="/static/studysync-icon.svg" type="image/svg+xml" />
     <title>StudySync | Học sinh</title>
     <link rel="icon" href="/static/studysync-icon.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -479,20 +487,33 @@
         if (webNotificationToggle.hidden) return;
         const enabled = localStorage.getItem(`studysync-web-notifications-${user.username}`) === 'true';
         webNotificationToggle.classList.toggle('enabled', enabled);
-        webNotificationToggle.textContent = enabled ? 'Đã bật thông báo máy tính' : 'Bật thông báo máy tính';
+        if (enabled) {
+          webNotificationToggle.textContent = 'Đã bật thông báo';
+        } else if (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)) {
+          webNotificationToggle.textContent = 'Cài app để bật thông báo';
+        } else {
+          webNotificationToggle.textContent = 'Bật thông báo';
+        }
       }
 
       const isPhoneBrowser = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-      webNotificationToggle.hidden = isPhoneBrowser;
+      // Dien thoai van duoc hien nut, nhung phai cai app truoc khi bat thong bao.
+      if (isPhoneBrowser) {
+        webNotificationToggle.textContent = 'Cài app để bật thông báo';
+        webNotificationToggle.title = 'Trên điện thoại cần cài app trước khi bật thông báo';
+      }
+      updateWebNotificationButton();
       webNotificationToggle.addEventListener('click', async () => {
         webNotificationToggle.disabled = true;
         try {
-          const { enableWebNotifications, listenForForegroundMessages } = await import('/firebase-notifications.js');
-          await enableWebNotifications(user.username);
-          listenForForegroundMessages((title, body) => showWebToast(title, body));
+          const mod = await import('/firebase-notifications.js');
+          await mod.enableWebNotifications(user.username);
+          mod.listenForForegroundMessages((title, body) => showWebToast(title, body));
           localStorage.setItem(`studysync-web-notifications-${user.username}`, 'true');
           updateWebNotificationButton();
-          showWebToast('Đã bật thông báo máy tính', 'Thông báo có thể đến khi bạn đóng tab; hãy giữ trình duyệt chạy nền.');
+          showWebToast('Đã bật thông báo', mod.isDesktopBrowser()
+            ? 'Thông báo có thể đến khi bạn đóng tab; hãy giữ trình duyệt chạy nền.'
+            : 'Thông báo sẽ đến cả khi bạn đã đóng app.');
         } catch (error) {
           showWebToast('Chưa bật được thông báo', error.message || 'Hãy kiểm tra cấu hình Firebase và quyền thông báo.');
         } finally {

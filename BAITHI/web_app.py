@@ -342,6 +342,12 @@ def health() -> dict[str, str]:
     return {"status": "ok", "service": "StudySync Unified App"}
 
 
+@app.get("/manifest.json")
+def manifest() -> FileResponse:
+    """Manifest cho PWA: de dien thoai co the cai app va nhan thong bao."""
+    return FileResponse(ROOT / "manifest.json", media_type="application/manifest+json")
+
+
 @app.get("/health/data")
 def health_data() -> dict[str, object]:
     """Xem du lieu tai khoan con nguyen khong sau moi lan deploy."""
