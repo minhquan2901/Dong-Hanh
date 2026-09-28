@@ -489,6 +489,7 @@
       const seenAlertsKey = `studysync-seen-alerts-${user.username}`;
       let deferredInstallPrompt = null;
       let foregroundMessagesListening = false;
+      let foregroundMessagesSetup = null;
       const isPhoneBrowser = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
         || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
       const isIOSDevice = /iPhone|iPad|iPod/i.test(navigator.userAgent)
@@ -564,19 +565,34 @@
         }
       }
 
+      async function ensureForegroundMessageListener(mod = null) {
+        if (foregroundMessagesListening) return;
+        if (foregroundMessagesSetup) return foregroundMessagesSetup;
+
+        foregroundMessagesSetup = (async () => {
+          const notifications = mod || await import('/firebase-notifications.js');
+          await notifications.initializeFirebaseNotifications();
+          notifications.listenForForegroundMessages((title, body, payload) => {
+            showWebToast(title, body);
+            notifications.showBrowserNotification(title, body, payload);
+          });
+          foregroundMessagesListening = true;
+        })();
+
+        try {
+          await foregroundMessagesSetup;
+        } finally {
+          foregroundMessagesSetup = null;
+        }
+      }
+
       updateWebNotificationButton();
       webNotificationToggle.addEventListener('click', async () => {
         webNotificationToggle.disabled = true;
         try {
           const mod = await import('/firebase-notifications.js');
           await mod.enableWebNotifications(user.username);
-          if (!foregroundMessagesListening) {
-            mod.listenForForegroundMessages((title, body, payload) => {
-              showWebToast(title, body);
-              mod.showBrowserNotification(title, body, payload);
-            });
-            foregroundMessagesListening = true;
-          }
+          await ensureForegroundMessageListener(mod);
           localStorage.setItem(`studysync-web-notifications-${user.username}`, 'true');
           updateWebNotificationButton();
           showWebToast('Đã bật thông báo', mod.isDesktopBrowser()
@@ -589,6 +605,15 @@
         }
       });
       updateWebNotificationButton();
+      if (
+        localStorage.getItem(`studysync-web-notifications-${user.username}`) === 'true'
+        && 'Notification' in window
+        && Notification.permission === 'granted'
+      ) {
+        void ensureForegroundMessageListener().catch((error) => {
+          console.error('Không khởi động được listener thông báo:', error);
+        });
+      }
 
       function showWebToast(title, message) {
         const toast = document.createElement('div');

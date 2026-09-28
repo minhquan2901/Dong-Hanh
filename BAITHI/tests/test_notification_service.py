@@ -82,6 +82,8 @@ def test_web_push_routes_serve_worker_and_register_student_token(tmp_path, monke
         assert icon_response.headers["content-type"].startswith("image/png")
     assert 'rel="manifest" href="/manifest.json"' in student_page.text
     assert 'studysync-apple-touch-icon-v2.png' in student_page.text
+    assert "ensureForegroundMessageListener()" in student_page.text
+    assert "Notification.permission === 'granted'" in student_page.text
     assert apple_icon.status_code == 200
     assert apple_icon.headers["content-type"].startswith("image/png")
     assert worker.status_code == 200
