@@ -15,6 +15,8 @@
     button,input { font:inherit; }
     button { cursor:pointer; }
     .topbar { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:16px clamp(16px,4vw,48px); border-bottom:1px solid #cedbd7; background:rgba(255,255,255,.82); }
+    .owner-greeting { display:flex; align-items:center; gap:6px; font:700 16px Manrope,sans-serif; }
+    .owner-greeting strong { color:var(--teal); }
     .brand { display:flex; align-items:center; gap:11px; font:800 19px Manrope,sans-serif; }
     .brand-mark { width:36px; height:36px; display:grid; place-items:center; border-radius:10px; color:#fff; background:var(--teal); }
     .session { display:flex; align-items:center; gap:12px; color:var(--muted); }
@@ -136,20 +138,18 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">
-      <span class="brand-mark">S</span>
-      <span>StudySync</span>
-      <span class="owner-tag">OWNER</span>
+    <div class="owner-greeting" id="owner-greeting" hidden>
+      <span>Chào owner,</span>
+      <strong id="owner-name"></strong>
     </div>
     <div class="session" id="session-bar" hidden>
-      <span id="owner-name">Owner</span>
       <button type="button" id="logout-button">Đăng xuất</button>
     </div>
   </header>
 
   <section class="login-shell" id="login-panel">
     <h1>Đăng nhập owner</h1>
-    <p class="sub">Khu vực quản trị riêng của StudySync.</p>
+    <p class="sub">Khu vực quản trị riêng.</p>
     <form class="login-form" id="owner-login-form">
       <label>
         Tên owner
@@ -167,10 +167,6 @@
   <div class="admin-shell" id="app-panel" hidden>
     <aside class="sidebar">
       <div class="sidebar-header">
-        <div class="brand small">
-          <span class="brand-mark">S</span>
-          <span>StudySync</span>
-        </div>
         <p>Quản trị hệ thống</p>
       </div>
 
@@ -302,6 +298,7 @@
   <script src="/static/confirm.js"></script>
   <script>
     const tokenKey = 'study_sync_owner_token';
+    const ownerUsernameKey = 'study_sync_owner_username';
     let ownerToken = sessionStorage.getItem(tokenKey) || '';
     let managedUsers = [];
     let reportItems = [];
@@ -358,7 +355,8 @@
       loginPanel.hidden = true;
       appPanel.hidden = false;
       sessionBar.hidden = false;
-      document.getElementById('owner-name').textContent = 'Owner';
+      document.getElementById('owner-name').textContent = sessionStorage.getItem(ownerUsernameKey) || 'Owner';
+      document.getElementById('owner-greeting').hidden = false;
       document.getElementById('sidebar-backend').textContent = healthData.backend || 'Chưa rõ';
     }
 
@@ -582,6 +580,7 @@
         if (!response.ok) throw new Error(result.detail || 'Đăng nhập thất bại.');
         ownerToken = result.token;
         sessionStorage.setItem(tokenKey, ownerToken);
+        sessionStorage.setItem(ownerUsernameKey, result.username || document.getElementById('owner-username').value.trim());
         await loadOwnerDashboard();
       } catch (error) {
         errorText.textContent = error.message;
@@ -590,9 +589,11 @@
 
     document.getElementById('logout-button').addEventListener('click', () => {
       sessionStorage.removeItem(tokenKey);
+      sessionStorage.removeItem(ownerUsernameKey);
       ownerToken = '';
       appPanel.hidden = true;
       sessionBar.hidden = true;
+      document.getElementById('owner-greeting').hidden = true;
       loginPanel.hidden = false;
       document.getElementById('owner-username').value = '';
       document.getElementById('owner-password').value = '';
@@ -612,6 +613,11 @@
 
     document.getElementById('user-search').addEventListener('input', renderUsers);
     document.getElementById('user-role-filter').addEventListener('change', renderUsers);
+
+    if (ownerToken && !sessionStorage.getItem(ownerUsernameKey)) {
+      sessionStorage.removeItem(tokenKey);
+      ownerToken = '';
+    }
 
     if (ownerToken) {
       loadOwnerDashboard().catch((error) => {
