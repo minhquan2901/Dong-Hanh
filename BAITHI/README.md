@@ -19,6 +19,7 @@
 - `parent_app.py`: dashboard phụ huynh dùng chung dữ liệu học tập.
 - `bus/study_bus.py`: nghiệp vụ lịch học, bài tập và thông báo.
 - `database/study_repository.py`: lưu lịch/bài tập trong `data/study_data.json`.
+- `reminder_worker.py`: tiến trình riêng gửi nhắc hạn bài và nhắc lịch học.
 
 ## UI/UX và kiến trúc
 
@@ -96,7 +97,38 @@ Khai báo các biến trong Render Environment, không commit giá trị bí m�
 
 Sau khi bật push, trình duyệt đăng ký service worker và gắn token FCM với tài khoản học sinh. Khi nhiệm vụ được thêm/hoàn thành hoặc thời khóa biểu thay đổi, thiết bị đã đăng ký sẽ nhận push.
 
-Mỗi nhiệm vụ có ngày và giờ hoàn thành theo giờ Việt Nam. GitHub Actions workflow `.github/workflows/desktop-push-reminders.yml` quét mỗi 5 phút để gửi nhắc tại các mốc còn 1 ngày, 1 giờ, 10 phút và 5 phút. Lịch GitHub Actions là best-effort, nên có thể trễ vài phút. Thêm repository secrets `PUSH_CRON_URL` (ví dụ `https://dong-hanh.onrender.com`) và `PUSH_CRON_SECRET` trong GitHub để bật lịch; giá trị secret phải khớp với Render.
+Mỗi nhiệm vụ có ngày và giờ hoàn thành theo giờ Việt Nam. Nhắc hạn được gửi bởi tiến trình riêng `reminder_worker.py`, quét mỗi 60 giây tại các mốc còn 1 ngày, 1 giờ, 10 phút và 5 phút. Người dùng chọn được mốc nhắc, tắt riêng nhắc hạn hoặc nhắc lịch, và đặt giờ yên lặng.
+
+#### Chạy worker nhắc thông báo
+
+```powershell
+python reminder_worker.py
+```
+
+Trên Render, khai báo thêm một service loại **worker** với lệnh chạy `python reminder_worker.py` (xem `render.yaml`). Đặt `REMINDER_TICK_ENABLED=false` cho service web để tiến trình web không tự gửi nhắc.
+
+Worker và cron GitHub Actions dùng chung một khoá ở tầng dữ liệu (Postgres advisory lock, còn local là SQLite file lock), nên chạy đồng thời nhiều instance vẫn chỉ gửi mỗi mốc nhắc đúng một lần. Endpoint `/api/internal/push-due` cũng dùng chung khoá này và trả về `{"skipped": "locked"}` khi bị bỏ qua. Workflow `.github/workflows/desktop-push-reminders.yml` chạy mỗi phút làm lớp dự phòng.
+
+#### Theo dõi khả năng gửi
+
+Mỗi lần gửi đều được ghi lại trong trạng thái của tài khoản: đã gửi, số thiết bị nhận được, số token hết hạn đã dọn, và lỗi gần nhất. Khi FCM lỗi liên tiếp, worker ghi cảnh báo vào log. Xem nhanh qua:
+
+- `/api/push/status?username=...` — trạng thái đầy đủ kèm lịch sử gửi và danh sách thiết bị.
+- `/api/push/health?username=...` — tóm tắt: đã cấu hình FCM chưa, đang lỗi mấy lần liên tiếp.
+
+#### Cài đặt cho người dùng
+
+Cả trang học sinh và trang phụ huynh đều có ô **Cài đặt thông báo**: bật/tắt thông báo, xem số thiết bị đã đăng ký, tắt thông báo trên từng thiết bị, chọn mốc nhắc hạn, đặt giờ yên lặng, và gửi thông báo thử. Tài khoản phụ huynh liên kết với học sinh sẽ nhận thông báo khi học sinh hoàn thành nhiệm vụ (tắt được qua tuỳ chọn **Báo khi học sinh hoàn thành bài**).
+
+#### Kiểm thử trên thiết bị thật
+
+Phần này cần thiết bị thật và Firebase đã cấu hình, không tự động kiểm chứng được:
+
+1. **Android (Chrome)**: bật thông báo, đóng app hẳn, tạo nhiệm vụ hạn sau 5 phút, chờ nhắc. Bấm *Gửi thông báo thử* để kiểm tra nhanh kênh gửi.
+2. **iPhone/iPad (Safari)**: phải iOS 16.4 trở lên và cài app vào Màn hình chính. Đóng app hẳn rồi kiểm tra nhắc nền.
+3. **Máy tính**: mở app bằng trình duyệt, thử cả khi đang mở tab và khi tab bị ẩn.
+4. **Sau khi triển khai lại**: đăng nhập lại ở mỗi thiết bị và bấm *Bật thông báo* một lần, vì token FCM có hạn. Kiểm tra `/api/push/config` trả `ready: true` và log worker không báo lỗi FCM.
+5. **Nhiều thiết bị**: đăng ký trên hai máy rồi tắt một máy bằng nút ×, xác nhận máy còn lại vẫn nhận thông báo.
 
 ### Giữ tài khoản và dữ liệu sau deploy/restart
 

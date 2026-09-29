@@ -201,6 +201,16 @@
       .push-settings-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; font-size: .9rem; }
       .push-settings-row label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
       .push-device-count { margin-left: auto; color: var(--muted); font-size: .84rem; }
+      .push-row-label { color: var(--muted); font-size: .88rem; }
+      .push-time-field { display: inline-flex; align-items: center; gap: 4px; }
+      .push-time-field input { font: inherit; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--text); }
+      .push-action { min-height: 32px; border: 1px solid var(--primary); border-radius: 8px; padding: 4px 12px; background: transparent; color: var(--primary); font-weight: 700; cursor: pointer; }
+      .push-action[disabled] { opacity: .6; cursor: progress; }
+      .push-device-list { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+      .push-device-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: .82rem; }
+      .push-device-chip button { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: .95rem; line-height: 1; }
+      .push-device-chip button:hover { color: var(--secondary); }
+      body.dark .push-time-field input { background: #232a2d; color: #d0dbd7; }
       body.dark .push-settings { background: #232a2d; color: #d0dbd7; }
       .toast-stack { position: fixed; right: 20px; bottom: 20px; z-index: 30; display: grid; gap: 10px; width: min(360px, calc(100vw - 32px)); }
       .web-toast { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 15px 16px; background: var(--card); border: 1px solid var(--line); border-left: 5px solid var(--secondary); border-radius: 14px; box-shadow: 0 18px 40px rgba(15, 23, 42, .18); animation: toast-in .25s ease-out; }
@@ -318,6 +328,22 @@
         <label><input type="checkbox" id="push-reminder-deadline" checked /> Nhắc hạn bài</label>
         <label><input type="checkbox" id="push-reminder-schedule" checked /> Nhắc lịch học</label>
         <span class="push-device-count" id="push-device-count"></span>
+      </div>
+      <div class="push-settings-row" id="push-milestone-row">
+        <span class="push-row-label">Nhắc trước hạn:</span>
+        <label><input type="checkbox" id="push-milestone-1440" checked /> 1 ngày</label>
+        <label><input type="checkbox" id="push-milestone-60" checked /> 1 giờ</label>
+        <label><input type="checkbox" id="push-milestone-10" checked /> 10 phút</label>
+        <label><input type="checkbox" id="push-milestone-5" checked /> 5 phút</label>
+      </div>
+      <div class="push-settings-row" id="push-quiet-row">
+        <label><input type="checkbox" id="push-quiet-enabled" /> Không nhắc trong giờ yên lặng</label>
+        <label class="push-time-field">Từ <input type="time" id="push-quiet-start" value="22:00" /></label>
+        <label class="push-time-field">Đến <input type="time" id="push-quiet-end" value="07:00" /></label>
+      </div>
+      <div class="push-settings-row">
+        <button class="push-action" id="push-test-button" type="button">Gửi thông báo thử</button>
+        <span class="push-device-list" id="push-device-list"></span>
       </div>
     </aside>
 
@@ -507,6 +533,11 @@
       const pushDeviceCount = document.getElementById('push-device-count');
       const deadlineReminder = document.getElementById('push-reminder-deadline');
       const scheduleReminder = document.getElementById('push-reminder-schedule');
+      const quietEnabled = document.getElementById('push-quiet-enabled');
+      const quietStart = document.getElementById('push-quiet-start');
+      const quietEnd = document.getElementById('push-quiet-end');
+      const pushTestButton = document.getElementById('push-test-button');
+      const pushDeviceList = document.getElementById('push-device-list');
       const pwaInstallGuide = document.getElementById('pwa-install-guide');
       const pwaInstallHelp = document.getElementById('pwa-install-help');
       const pwaInstallButton = document.getElementById('pwa-install-button');
@@ -627,16 +658,123 @@
           pushSettings.hidden = false;
           deadlineReminder.checked = status.reminders.deadline;
           scheduleReminder.checked = status.reminders.schedule;
+          const milestones = status.reminders.deadline_milestones || [];
+          for (const value of [1440, 60, 10, 5]) {
+            const box = document.getElementById(`push-milestone-${value}`);
+            if (box) box.checked = milestones.includes(value);
+          }
+          const quiet = status.reminders.quiet_hours || {};
+          quietEnabled.checked = quiet.enabled === true;
+          quietStart.value = quiet.start || '22:00';
+          quietEnd.value = quiet.end || '07:00';
           const count = status.web_devices + status.mobile_devices;
           pushDeviceCount.textContent = `${count} thiết bị đã đăng ký`;
           pushStatusLine.textContent = status.last_error
-            ? `Lần gửi gần nhất bị lỗi: ${status.last_error}`
+            ? `Lần gửi gần nhất bị lỗi (${status.consecutive_errors || 1} lần): ${status.last_error}`
             : (status.last_success_at ? `Gửi thành công gần nhất: ${status.last_success_at}`
               : (count ? 'Đã đăng ký, đang chờ thông báo đầu tiên.' : 'Chưa đăng ký thiết bị nào.'));
+          renderDeviceList(status.devices || []);
         } catch (error) {
           console.error('Không đọc được trạng thái thông báo:', error);
         }
       }
+
+      function renderDeviceList(devices) {
+        pushDeviceList.innerHTML = '';
+        for (const device of devices) {
+          const chip = document.createElement('span');
+          chip.className = 'push-device-chip';
+          const kind = device.device_type === 'mobile' ? 'Điện thoại' : 'Trình duyệt';
+          chip.innerHTML = `<span>${kind}${device.label ? ` · ${device.label}` : ''}</span>`;
+          const remove = document.createElement('button');
+          remove.type = 'button';
+          remove.textContent = '×';
+          remove.title = 'Tắt thông báo trên thiết bị này';
+          remove.addEventListener('click', async () => {
+            remove.disabled = true;
+            try {
+              const response = await fetch('/api/push/devices/remove', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` },
+                body: JSON.stringify({ username: user.username, device_id: device.id }),
+              });
+              if (!response.ok) throw new Error('Không tắt được thiết bị này.');
+              showWebToast('Đã tắt thiết bị', 'Thiết bị này sẽ không nhận thông báo nữa.');
+              await refreshPushSettings();
+            } catch (error) {
+              remove.disabled = false;
+              showWebToast('Không tắt được thiết bị', error.message);
+            }
+          });
+          chip.appendChild(remove);
+          pushDeviceList.appendChild(chip);
+        }
+      }
+
+      async function saveReminderPreferences(updates) {
+        const response = await fetch('/api/push/preferences', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` },
+          body: JSON.stringify({ username: user.username, ...updates }),
+        });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.detail || 'Không lưu được tùy chọn nhắc.');
+        }
+        await refreshPushSettings();
+      }
+
+      function collectMilestones() {
+        return [1440, 60, 10, 5].filter((value) => document.getElementById(`push-milestone-${value}`).checked);
+      }
+
+      function collectQuietHours() {
+        return {
+          enabled: quietEnabled.checked ? 'true' : 'false',
+          start: quietStart.value || '22:00',
+          end: quietEnd.value || '07:00',
+        };
+      }
+
+      pushTestButton.addEventListener('click', async () => {
+        pushTestButton.disabled = true;
+        try {
+          const response = await fetch('/api/push/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` },
+            body: JSON.stringify({ username: user.username, device_id: '' }),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data.detail || 'Không gửi được thông báo thử.');
+          showWebToast('Thông báo thử', data.message);
+        } catch (error) {
+          showWebToast('Không gửi được thông báo thử', error.message);
+        } finally {
+          pushTestButton.disabled = false;
+        }
+      });
+
+      quietEnabled.addEventListener('change', () => {
+        saveReminderPreferences({ quiet_hours: collectQuietHours() })
+          .catch((error) => showWebToast('Cài đặt thông báo', error.message));
+      });
+      for (const input of [quietStart, quietEnd]) {
+        input.addEventListener('change', () => {
+          if (!quietEnabled.checked) return;
+          saveReminderPreferences({ quiet_hours: collectQuietHours() })
+            .catch((error) => showWebToast('Cài đặt thông báo', error.message));
+        });
+      }
+      document.getElementById('push-milestone-row').addEventListener('change', () => {
+        const picked = collectMilestones();
+        if (!picked.length) {
+          showWebToast('Cài đặt thông báo', 'Giữ ít nhất một mốc nhắc, ví dụ 5 phút trước hạn.');
+          document.getElementById('push-milestone-5').checked = true;
+          return;
+        }
+        saveReminderPreferences({ deadline_milestones: picked })
+          .catch((error) => showWebToast('Cài đặt thông báo', error.message));
+      });
 
       for (const [input, key] of [[deadlineReminder, 'deadline'], [scheduleReminder, 'schedule']]) {
         input.addEventListener('change', async () => {

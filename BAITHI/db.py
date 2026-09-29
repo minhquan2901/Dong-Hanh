@@ -46,6 +46,7 @@ _OVERRIDE_ATTRS = {
     "reminder_preferences": ("backend.notification_service", "REMINDER_PREFERENCES_FILE"),
     "push_status": ("backend.notification_service", "PUSH_STATUS_FILE"),
     "web_push_subscriptions": ("backend.notification_service", "WEB_PUSH_SUBSCRIPTIONS_FILE"),
+    "push_devices": ("backend.notification_service", "PUSH_DEVICE_FILE"),
 }
 
 

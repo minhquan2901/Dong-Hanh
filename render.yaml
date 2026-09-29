@@ -27,3 +27,31 @@ services:
         sync: false
       - key: STUDYSYNC_SESSION_SECRET
         sync: false
+      # Tiến trình web không tự gửi nhắc nữa; chạy đúng một worker riêng.
+      - key: REMINDER_TICK_ENABLED
+        value: "false"
+
+  # Worker nhắc thông báo. Chỉ cần một instance vì khoá chống gửi trùng
+  # nằm ở tầng dữ liệu, nên thêm worker cũng không gửi lặp.
+  - type: worker
+    name: studysync-reminders
+    runtime: python
+    plan: free
+    rootDir: BAITHI
+    buildCommand: pip install -r requirements.txt
+    startCommand: python reminder_worker.py
+    envVars:
+      - key: STUDYSYNC_DATABASE_URL
+        sync: false
+      - key: FCM_ENABLED
+        value: "true"
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_VAPID_KEY
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: PUBLIC_APP_URL
+        sync: false
+      - key: REMINDER_TICK_SECONDS
+        value: "60"

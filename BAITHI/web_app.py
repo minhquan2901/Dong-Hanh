@@ -7,6 +7,7 @@ import time
 import traceback
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
+from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, RedirectResponse
@@ -38,12 +39,16 @@ from backend.notification_service import (
     get_reminder_preferences,
     get_user_mobile_tokens,
     get_user_web_tokens,
+    list_user_devices,
     register_user_mobile_token,
     register_user_web_token,
+    remove_user_device,
     remove_user_mobile_tokens,
     remove_user_web_tokens,
     run_reminder_tick,
+    send_completion_notifications,
     send_due_task_reminders,
+    send_push_to_user,
     send_schedule_reminders,
     send_web_push_to_user,
     set_reminder_preferences,
@@ -97,7 +102,6 @@ def warm_up_database() -> None:
             load_document("users", {"users": []}, "tai khoan")
         except Exception:  # pragma: no cover - app van khoi dong duoc neu DB loi
             pass
-    _start_reminder_scheduler()
 
 
 @app.on_event("shutdown")
@@ -232,6 +236,13 @@ class ReminderPreferencePayload(BaseModel):
     username: str
     deadline: bool | None = None
     schedule: bool | None = None
+    completion: bool | None = None
+    deadline_milestones: list[int] | None = None
+    quiet_hours: dict[str, Any] | None = None
+
+class PushDevicePayload(BaseModel):
+    username: str
+    device_id: str
 
 
 class SecondaryPinSetupPayload(BaseModel):
@@ -492,10 +503,10 @@ def web_push_config() -> dict[str, bool | str]:
 
 @app.post("/api/push/register")
 def register_web_push(payload: WebPushRegistrationPayload, authorization: str | None = Header(default=None)):
-    _require_user_session(authorization, payload.username, {"student"})
+    _require_user_session(authorization, payload.username, {"student", "parent"})
     user = get_user_by_username(payload.username)
-    if not user or user.get("role") != "student":
-        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản học sinh.")
+    if not user or user.get("role") not in {"student", "parent"}:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
     if not payload.token.strip():
         raise HTTPException(status_code=400, detail="Token thông báo không hợp lệ.")
     try:
@@ -511,7 +522,7 @@ def register_web_push(payload: WebPushRegistrationPayload, authorization: str | 
 
 @app.post("/api/push/unregister")
 def unregister_web_push(payload: WebPushUnregisterPayload, authorization: str | None = Header(default=None)):
-    _require_user_session(authorization, payload.username, {"student"})
+    _require_user_session(authorization, payload.username, {"student", "parent"})
     remove_user_web_tokens(payload.username)
     remove_user_mobile_tokens(payload.username)
     return {"message": "Đã tắt thông báo trên tất cả thiết bị.", "username": payload.username}
@@ -519,11 +530,11 @@ def unregister_web_push(payload: WebPushUnregisterPayload, authorization: str | 
 
 @app.post("/api/push/register-mobile")
 def register_mobile_push(payload: MobilePushRegistrationPayload, authorization: str | None = Header(default=None)):
-    _require_user_session(authorization, payload.username, {"student"})
     """App điện thoại (Android/iOS) đăng ký FCM token theo đúng tài khoản."""
+    _require_user_session(authorization, payload.username, {"student", "parent"})
     user = get_user_by_username(payload.username)
-    if not user or user.get("role") != "student":
-        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản học sinh.")
+    if not user or user.get("role") not in {"student", "parent"}:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
     if not payload.token.strip():
         raise HTTPException(status_code=400, detail="Token thông báo không hợp lệ.")
     try:
@@ -539,18 +550,61 @@ def push_status(
     authorization: str | None = Header(default=None),
 ):
     _require_user_session(authorization, username)
-    return get_push_status(username)
+    status = get_push_status(username)
+    status["devices"] = list_user_devices(username)
+    return status
+
+
+@app.get("/api/push/devices")
+def list_push_devices(
+    username: str = Query(...),
+    authorization: str | None = Header(default=None),
+):
+    _require_user_session(authorization, username)
+    return {"devices": list_user_devices(username)}
+
+
+@app.post("/api/push/devices/remove")
+def remove_push_device(payload: PushDevicePayload, authorization: str | None = Header(default=None)):
+    _require_user_session(authorization, payload.username, {"student", "parent"})
+    if not remove_user_device(payload.username, payload.device_id):
+        raise HTTPException(status_code=404, detail="Không tìm thấy thiết bị này.")
+    return {"message": "Đã tắt thông báo trên thiết bị.", "username": payload.username}
+
+
+@app.post("/api/push/test")
+def send_test_push_to_account(payload: PushDevicePayload, authorization: str | None = Header(default=None)):
+    _require_user_session(authorization, payload.username, {"student", "parent"})
+    results = send_push_to_user(
+        payload.username,
+        "StudySync: thông báo thử",
+        "Thông báo thử đã tới thiết bị này. Nếu bạn thấy nó, cấu hình thông báo đang chạy tốt.",
+        "/student" if get_user_by_username(payload.username).get("role") == "student" else "/parent",
+    )
+    sent = any(item.get("status") == "sent" for item in results)
+    return {
+        "message": "Đã gửi thông báo thử." if sent else "Không có thiết bị nào nhận được thông báo thử.",
+        "sent": sent,
+        "devices": len(results),
+        "results": results,
+    }
 
 
 @app.post("/api/push/preferences")
 def update_push_preferences(payload: ReminderPreferencePayload, authorization: str | None = Header(default=None)):
-    _require_user_session(authorization, payload.username, {"student"})
+    _require_user_session(authorization, payload.username, {"student", "parent"})
     user = get_user_by_username(payload.username)
-    if not user or user.get("role") != "student":
-        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản học sinh.")
+    if not user or user.get("role") not in {"student", "parent"}:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
     updates = {
         key: value
-        for key, value in (("deadline", payload.deadline), ("schedule", payload.schedule))
+        for key, value in (
+            ("deadline", payload.deadline),
+            ("schedule", payload.schedule),
+            ("completion", payload.completion),
+            ("deadline_milestones", payload.deadline_milestones),
+            ("quiet_hours", payload.quiet_hours),
+        )
         if value is not None
     }
     if not updates:
@@ -564,7 +618,7 @@ def read_push_preferences(
     authorization: str | None = Header(default=None),
 ):
     _require_user_session(authorization, username)
-    return {"reminders": get_reminder_preferences(username)}
+    return {"reminders": get_reminder_preferences(username), "devices": list_user_devices(username)}
 
 
 @app.post("/api/internal/push-due")
@@ -574,7 +628,38 @@ def trigger_due_task_pushes(x_cron_secret: str | None = Header(default=None, ali
         raise HTTPException(status_code=503, detail="Chưa cấu hình PUSH_CRON_SECRET.")
     if not x_cron_secret or not secrets.compare_digest(x_cron_secret, expected_secret):
         raise HTTPException(status_code=403, detail="Không được phép gọi tác vụ này.")
-    return {"reminders": send_due_task_reminders(), "schedule": send_schedule_reminders()}
+    return _locked_reminder_tick()
+
+
+def _locked_reminder_tick() -> dict[str, Any]:
+    """Cron và worker cùng gọi một hàm, nên khoá chống gửi trùng ở một chỗ.
+
+    Import cục bộ để tránh vòng lặp import giữa web_app và reminder_worker.
+    """
+    from reminder_worker import reminder_lock
+
+    with reminder_lock() as acquired:
+        if not acquired:
+            return {"skipped": "locked", "reminders": [], "schedule": []}
+        return {"reminders": send_due_task_reminders(), "schedule": send_schedule_reminders()}
+
+
+@app.get("/api/push/health")
+def push_health(
+    username: str = Query(...),
+    authorization: str | None = Header(default=None),
+):
+    """Tóm tắt khả năng gửi để người dùng tự kiểm tra khi thông báo im."""
+    _require_user_session(authorization, username)
+    status = get_push_status(username)
+    return {
+        "ready": firebase_push_ready(),
+        "expected": status["expected"],
+        "devices": len(status.get("devices", [])),
+        "last_success_at": status["last_success_at"],
+        "last_error": status["last_error"],
+        "consecutive_errors": status["consecutive_errors"],
+    }
 
 
 @app.get("/login")
@@ -1121,12 +1206,20 @@ def update_assignment(
     if payload.username and payload.completed:
         task = next((item for item in study.assignments(payload.username) if item.get("id") == assignment_id), None)
         title = str(task.get("title", "nhiệm vụ")) if task else "nhiệm vụ"
+        subject = str(task.get("subject", "")) if task else ""
         background_tasks.add_task(
             send_web_push_to_user,
             payload.username,
             "Đã hoàn thành nhiệm vụ",
             f"Bạn đã hoàn thành: {title}.",
             "/student#assignments",
+        )
+        # Phụ huynh đã liên kết cũng nhận thông báo để theo dõi tiến độ.
+        background_tasks.add_task(
+            send_completion_notifications,
+            payload.username,
+            title,
+            subject,
         )
     return {
         "message": "Đã cập nhật trạng thái nhiệm vụ.",

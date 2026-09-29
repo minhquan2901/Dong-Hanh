@@ -4,6 +4,8 @@ import json
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from fastapi.testclient import TestClient
 
 from backend.notification_service import (
@@ -190,7 +192,7 @@ def test_legacy_date_only_deadline_uses_end_of_day():
 def test_push_settings_are_private_and_persist(tmp_path, monkeypatch):
     monkeypatch.setattr("auth_service.USERS_FILE", tmp_path / "users.json")
     for key in ("WEB_PUSH_SUBSCRIPTIONS_FILE", "MOBILE_PUSH_SUBSCRIPTIONS_FILE",
-                "REMINDER_PREFERENCES_FILE", "PUSH_STATUS_FILE"):
+                "REMINDER_PREFERENCES_FILE", "PUSH_STATUS_FILE", "PUSH_DEVICE_FILE"):
         monkeypatch.setattr("backend.notification_service." + key, tmp_path / (key.lower() + ".json"))
     monkeypatch.setenv("STUDYSYNC_SESSION_SECRET", "test-session-secret-with-at-least-32-chars")
     monkeypatch.setattr("web_app.get_username_bot_status", lambda: {"enabled": False})
@@ -208,13 +210,20 @@ def test_push_settings_are_private_and_persist(tmp_path, monkeypatch):
     assert client.post("/api/push/register", headers=headers, json={"username": "student-a", "token": "web-token"}).status_code == 200
     assert client.post("/api/push/register-mobile", headers=headers, json={"username": "student-a", "token": "mobile-token"}).status_code == 200
     assert client.post("/api/push/preferences", headers=headers, json={"username": "student-a", "deadline": False}).json() == {
-        "reminders": {"deadline": False, "schedule": True}
+        "reminders": {
+            "deadline": False,
+            "schedule": True,
+            "completion": True,
+            "deadline_milestones": [1440, 60, 10, 5],
+            "quiet_hours": {"enabled": "false", "start": "22:00", "end": "07:00"},
+        }
     }
     assert client.get("/api/push/status", params={"username": "student-a"}).status_code == 401
     status = client.get("/api/push/status", params={"username": "student-a"}, headers=headers).json()
     assert status["web_devices"] == status["mobile_devices"] == 1
     assert status["expected"] is True
-    assert status["reminders"] == {"deadline": False, "schedule": True}
+    assert status["reminders"]["deadline"] is False
+    assert len(status["devices"]) == 2
 
 
 def test_expired_fcm_token_is_removed_from_both_subscriptions(tmp_path, monkeypatch):
@@ -227,3 +236,171 @@ def test_expired_fcm_token_is_removed_from_both_subscriptions(tmp_path, monkeypa
     remove_token_everywhere("expired-token")
     assert get_user_web_tokens("student-a") == []
     assert get_user_mobile_tokens("student-a") == []
+
+
+def test_quiet_hours_block_deadline_reminder(tmp_path, monkeypatch):
+    subscriptions = tmp_path / "web_push_subscriptions.json"
+    monkeypatch.setattr("backend.notification_service.WEB_PUSH_SUBSCRIPTIONS_FILE", subscriptions)
+    monkeypatch.setattr("backend.notification_service.REMINDER_PREFERENCES_FILE", tmp_path / "prefs.json")
+    monkeypatch.setattr("database.study_repository.data_file", lambda name: tmp_path / name)
+    from backend.notification_service import in_quiet_hours, set_reminder_preferences
+
+    zone = ZoneInfo("Asia/Ho_Chi_Minh")
+    # 23:30 nằm trong khoảng 22:00-07:00 kéo dài qua đêm.
+    now = datetime(2026, 9, 27, 23, 30, tzinfo=zone)
+    prefs = set_reminder_preferences("student-a", {
+        "quiet_hours": {"enabled": "true", "start": "22:00", "end": "07:00"},
+    })
+    assert in_quiet_hours(prefs, now) is True
+    assert in_quiet_hours(prefs, now.replace(hour=12)) is False
+
+    from bus.study_bus import StudyBus
+    StudyBus().repository.add_assignment("Bài đêm", "Toán", (now + timedelta(minutes=5)).isoformat(), "Cao", "student-a")
+    sent_calls = []
+    monkeypatch.setattr(
+        "backend.notification_service.send_web_push_to_user",
+        lambda *args, **kwargs: sent_calls.append(args) or [{"status": "sent"}],
+    )
+    results = send_due_task_reminders(now=now)
+    assert [item.get("deferred") for item in results] == ["quiet_hours"]
+    assert all(item["sent"] is False for item in results)
+    assert sent_calls == []
+
+
+def test_selected_milestones_limit_deadline_reminders(tmp_path, monkeypatch):
+    subscriptions = tmp_path / "web_push_subscriptions.json"
+    reminder_state = tmp_path / "push_reminder_state.json"
+    monkeypatch.setattr("backend.notification_service.WEB_PUSH_SUBSCRIPTIONS_FILE", subscriptions)
+    monkeypatch.setattr("backend.notification_service.PUSH_REMINDER_STATE_FILE", reminder_state)
+    monkeypatch.setattr("backend.notification_service.REMINDER_PREFERENCES_FILE", tmp_path / "prefs.json")
+    monkeypatch.setattr("database.study_repository.data_file", lambda name: tmp_path / name)
+    from backend.notification_service import set_reminder_preferences
+
+    zone = ZoneInfo("Asia/Ho_Chi_Minh")
+    now = datetime(2026, 9, 27, 12, 0, tzinfo=zone)
+    from bus.study_bus import StudyBus
+    for offset in (timedelta(days=1), timedelta(hours=1), timedelta(minutes=10), timedelta(minutes=5)):
+        StudyBus().repository.add_assignment(
+            f"Bài {offset}", "Toán", (now + offset).isoformat(), "Cao", "student-a"
+        )
+
+    sent = []
+    monkeypatch.setattr(
+        "backend.notification_service.send_web_push_to_user",
+        lambda username, title, body, path: sent.append(title) or [{"status": "sent"}],
+    )
+    register_user_web_token("student-a", "desktop-token-1")
+    # Chỉ giữ hai mốc gần nhất, các mốc xa không được gửi.
+    set_reminder_preferences("student-a", {"deadline_milestones": [10, 5]})
+
+    results = send_due_task_reminders(now=now)
+
+    assert {item["milestone_seconds"] for item in results} == {600, 300}
+    assert sorted(sent) == ["Nhiệm vụ còn 10 phút", "Nhiệm vụ còn 5 phút"]
+
+
+def test_completion_notification_reaches_linked_parent(tmp_path, monkeypatch):
+    monkeypatch.setattr("auth_service.USERS_FILE", tmp_path / "users.json")
+    monkeypatch.setattr("backend.notification_service.WEB_PUSH_SUBSCRIPTIONS_FILE", tmp_path / "web.json")
+    monkeypatch.setattr("backend.notification_service.REMINDER_PREFERENCES_FILE", tmp_path / "prefs.json")
+    from auth_service import assign_student_to_parent
+    from backend.notification_service import send_completion_notifications
+
+    register_user("student-a", "Pass1234", "student", "Học sinh A")
+    register_user("parent-a", "Pass1234", "parent", "Phụ huynh A")
+    assign_student_to_parent("parent-a", "student-a")
+    register_user_web_token("parent-a", "parent-token-1")
+
+    sent = []
+    monkeypatch.setattr(
+        "backend.notification_service.send_fcm_message",
+        lambda token, title, body, web_link=None: sent.append((token, title, body)) or {"status": "sent"},
+    )
+
+    results = send_completion_notifications("student-a", "Bài Toán về hình thức", "Toán")
+
+    assert [item["username"] for item in results] == ["parent-a"]
+    assert all(item["sent"] for item in results)
+    assert sent[0][0] == "parent-token-1"
+    assert "Học sinh A" in sent[0][2] and "Bài Toán về hình thức" in sent[0][2]
+
+
+def test_completion_notification_respects_parent_preference(tmp_path, monkeypatch):
+    monkeypatch.setattr("auth_service.USERS_FILE", tmp_path / "users.json")
+    monkeypatch.setattr("backend.notification_service.REMINDER_PREFERENCES_FILE", tmp_path / "prefs.json")
+    from auth_service import assign_student_to_parent
+    from backend.notification_service import send_completion_notifications, set_reminder_preferences
+
+    register_user("student-a", "Pass1234", "student", "Học sinh A")
+    register_user("parent-a", "Pass1234", "parent", "Phụ huynh A")
+    assign_student_to_parent("parent-a", "student-a")
+    set_reminder_preferences("parent-a", {"completion": False})
+    sent_calls = []
+    monkeypatch.setattr(
+        "backend.notification_service.send_fcm_message",
+        lambda token, title, body, web_link=None: sent_calls.append(token) or {"status": "sent"},
+    )
+
+    assert send_completion_notifications("student-a", "Bài Toán", "Toán") == []
+    assert sent_calls == []
+
+
+def test_reminder_worker_lock_prevents_duplicate_send(tmp_path, monkeypatch):
+    import reminder_worker
+
+    monkeypatch.setattr("data_storage.DATA_DIR", tmp_path, raising=False)
+    calls = []
+    monkeypatch.setattr(reminder_worker, "run_reminder_tick", lambda: calls.append("deadline") or [])
+    monkeypatch.setattr(reminder_worker, "send_schedule_reminders", lambda: calls.append("schedule") or [])
+
+    first = reminder_worker.tick()
+    # Giữ khoá rồi gọi lần hai, mô phỏng worker/cron chạy song song.
+    with reminder_worker.reminder_lock() as acquired:
+        assert acquired is True
+        second = reminder_worker.tick()
+    assert first == {"reminders": [], "schedule": []}
+    assert second["skipped"] == "locked"
+    assert calls == ["deadline", "schedule"]
+
+
+def test_delivery_history_and_consecutive_errors(tmp_path, monkeypatch):
+    from backend.notification_service import get_push_status, record_delivery
+
+    monkeypatch.setattr("backend.notification_service.PUSH_STATUS_FILE", tmp_path / "push_status.json")
+    now = datetime(2026, 9, 27, 12, 0, tzinfo=ZoneInfo("Asia/Ho_Chi_Minh"))
+
+    record_delivery("student-a", "deadline", False, [{"status": "error", "error": "FCM unavailable"}], now)
+    record_delivery("student-a", "deadline", False, [{"status": "unregistered"}], now)
+    status = get_push_status("student-a")
+
+    assert status["consecutive_errors"] == 1
+    assert status["last_error"] == "FCM unavailable"
+    assert len(status["history"]) == 2
+    assert status["history"][1]["expired_tokens"] == 1
+
+    record_delivery("student-a", "deadline", True, [{"status": "sent"}], now)
+    assert get_push_status("student-a")["consecutive_errors"] == 0
+
+
+def test_device_can_be_removed_without_affecting_others(tmp_path, monkeypatch):
+    from backend.notification_service import (
+        get_user_web_tokens,
+        list_user_devices,
+        register_user_web_token,
+        remove_user_device,
+    )
+
+    monkeypatch.setattr("backend.notification_service.WEB_PUSH_SUBSCRIPTIONS_FILE", tmp_path / "web.json")
+    monkeypatch.setattr("backend.notification_service.PUSH_DEVICE_FILE", tmp_path / "devices.json")
+    register_user_web_token("student-a", "token-laptop")
+    register_user_web_token("student-a", "token-phone")
+    devices = list_user_devices("student-a")
+    assert len(devices) == 2
+
+    phone = next(item for item in devices if item["device_type"] == "web")
+    assert remove_user_device("student-a", phone["id"]) is True
+    remaining = get_user_web_tokens("student-a")
+    assert len(remaining) == 1
+    # Chỉ một máy mất thông báo, máy còn lại vẫn nhận.
+    assert get_user_web_tokens("student-a") == remaining
+    assert remove_user_device("student-a", "khong-ton-tai") is False

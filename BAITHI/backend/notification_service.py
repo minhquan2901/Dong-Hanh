@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import logging
 import os
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -17,12 +18,15 @@ from email.utils import formataddr
 from dotenv import load_dotenv
 from firebase_admin import credentials, messaging
 
+from auth_service import get_user_by_username
 from bus.study_bus import StudyBus
 from data_storage import data_file, write_json_atomic
 from db import load_document, save_document
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
+
+logger = logging.getLogger(__name__)
 
 DEVICE_TOKEN_FILE = data_file("device_tokens.json")
 WEB_TOKEN_FILE = data_file("web_tokens.json")
@@ -71,13 +75,21 @@ FCM_ERROR_UNREGISTERED = (
 DEFAULT_REMINDER_PREFERENCES = {
     "deadline": True,
     "schedule": True,
+    "completion": True,
 }
+
+# Moi muc nho: thoi gian con lai, so phut cho phep, nhanh. Chi luu cac muc con lai.
+DEFAULT_DEADLINE_MILESTONES = ("1440", "60", "10", "5")
+
+# So lan gui that bai lien tiep truoc khi canh bao nguoi dung.
+CONSECUTIVE_ERROR_ALERT_LIMIT = int(os.getenv("PUSH_ERROR_ALERT_LIMIT", "3"))
 
 # Nhịch 1 phút: cửa sổ hẹp nhất là 4 phút nên cron 5 phút sẽ dễ trượt mốc.
 REMINDER_TICK_SECONDS = int(os.getenv("REMINDER_TICK_SECONDS", "60"))
 REMINDER_TICK_ENABLED = os.getenv("REMINDER_TICK_ENABLED", "true").strip().lower() == "true"
 
 PUSH_STATUS_FILE = data_file("push_status.json")
+PUSH_DEVICE_FILE = data_file("push_devices.json")
 STATUS_HISTORY_LIMIT = 5
 
 
@@ -184,6 +196,7 @@ def register_user_web_token(username: str, token: str) -> int:
         tokens.append(clean_token)
     subscriptions[clean_username] = tokens
     save_document("web_push_subscriptions", subscriptions)
+    _save_device(clean_username, clean_token, "web")
     return len(tokens)
 
 
@@ -251,6 +264,7 @@ def register_user_mobile_token(username: str, token: str) -> int:
         tokens.append(clean_token)
     subscriptions[clean_username] = tokens
     save_document("mobile_push_subscriptions", subscriptions)
+    _save_device(clean_username, clean_token, "mobile")
     return len(tokens)
 
 
@@ -289,6 +303,82 @@ def rename_user_mobile_tokens(old_username: str, new_username: str) -> None:
         new_tokens = []
     subscriptions[new_name] = list(dict.fromkeys([*new_tokens, *old_tokens]))
     save_document("mobile_push_subscriptions", subscriptions)
+
+
+# ---- Quản lý từng thiết bị ----
+def _token_fingerprint(token: str) -> str:
+    """Không lưu token thô trong danh sách thiết bị, chỉ giữ dấu vân tay."""
+    return hashlib.sha256(str(token).encode("utf-8")).hexdigest()[:16]
+
+
+def _device_store() -> dict[str, Any]:
+    store = load_document("push_devices", {})
+    return store if isinstance(store, dict) else {}
+
+
+def _save_device(username: str, token: str, device_type: str, label: str = "") -> None:
+    store = _device_store()
+    entry = store.get(_token_fingerprint(token))
+    entry = entry if isinstance(entry, dict) else {}
+    entry.update({
+        "username": str(username).strip(),
+        "device_type": device_type,
+        "label": str(label or "").strip()[:60],
+        "registered_at": entry.get("registered_at") or datetime.now(STUDY_TIMEZONE).isoformat(timespec="seconds"),
+        "last_seen_at": datetime.now(STUDY_TIMEZONE).isoformat(timespec="seconds"),
+    })
+    store[_token_fingerprint(token)] = entry
+    save_document("push_devices", store)
+
+
+def list_user_devices(username: str) -> list[dict[str, Any]]:
+    target = str(username or "").strip()
+    store = _device_store()
+    devices: list[dict[str, Any]] = []
+    for fingerprint, entry in store.items():
+        if not isinstance(entry, dict) or str(entry.get("username", "")) != target:
+            continue
+        devices.append({
+            "id": fingerprint,
+            "device_type": entry.get("device_type", "web"),
+            "label": entry.get("label", ""),
+            "registered_at": entry.get("registered_at"),
+            "last_seen_at": entry.get("last_seen_at"),
+        })
+    devices.sort(key=lambda item: str(item.get("last_seen_at") or ""), reverse=True)
+    return devices
+
+
+def remove_user_device(username: str, device_id: str) -> bool:
+    """Tắt thông báo trên đúng một thiết bị, các máy khác giữ nguyên."""
+    target = str(username or "").strip()
+    fingerprint = str(device_id or "").strip()
+    store = _device_store()
+    entry = store.get(fingerprint)
+    if not isinstance(entry, dict) or str(entry.get("username", "")) != target:
+        return False
+    remove_token_everywhere_by_id(fingerprint, entry.get("username", ""), entry.get("device_type", "web"))
+    store.pop(fingerprint, None)
+    save_document("push_devices", store)
+    return True
+
+
+def remove_token_everywhere_by_id(fingerprint: str, username: str, device_type: str) -> None:
+    key = "mobile_push_subscriptions" if device_type == "mobile" else "web_push_subscriptions"
+    subscriptions = load_document(key, {})
+    if not isinstance(subscriptions, dict):
+        return
+    tokens = subscriptions.get(str(username).strip(), [])
+    if not isinstance(tokens, list):
+        return
+    kept = [token for token in tokens if _token_fingerprint(token) != fingerprint]
+    if len(kept) == len(tokens):
+        return
+    if kept:
+        subscriptions[str(username).strip()] = kept
+    else:
+        subscriptions.pop(str(username).strip(), None)
+    save_document(key, subscriptions)
 
 
 def get_mobile_push_usernames() -> list[str]:
@@ -374,20 +464,52 @@ def get_email_preferences(username: str) -> dict[str, Any]:
 
 
 # ---- Tùy chọn nhắc theo từng loại ----
-def get_reminder_preferences(username: str) -> dict[str, bool]:
+def _normalize_milestones(value: Any) -> list[int]:
+    """Chỉ nhận các mốc hợp lệ (phút) đã nằm trong danh sách mặc định."""
+    if not isinstance(value, (list, tuple)):
+        return [int(item) for item in DEFAULT_DEADLINE_MILESTONES]
+    allowed = set(int(item) for item in DEFAULT_DEADLINE_MILESTONES)
+    picked: list[int] = []
+    for item in value:
+        try:
+            minutes = int(str(item).strip())
+        except (TypeError, ValueError):
+            continue
+        if minutes in allowed and minutes not in picked:
+            picked.append(minutes)
+    # Luôn giữ ít nhất mốc gần nhất, nếu không nguoi dung se khong bao gio duoc nhac.
+    return picked or [int(item) for item in DEFAULT_DEADLINE_MILESTONES]
+
+
+def _normalize_quiet_hours(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {"enabled": "false", "start": "22:00", "end": "07:00"}
+    start = str(value.get("start", "22:00")).strip()
+    end = str(value.get("end", "07:00")).strip()
+    for clock in (start, end):
+        parts = clock.split(":")
+        if len(parts) != 2 or not all(part.isdigit() for part in parts):
+            return {"enabled": "false", "start": "22:00", "end": "07:00"}
+    return {"enabled": "true" if str(value.get("enabled", "")).strip().lower() == "true" else "false", "start": start, "end": end}
+
+
+def get_reminder_preferences(username: str) -> dict[str, Any]:
     target = str(username or "").strip()
     if not target:
-        return dict(DEFAULT_REMINDER_PREFERENCES)
+        return {**DEFAULT_REMINDER_PREFERENCES, "deadline_milestones": [int(item) for item in DEFAULT_DEADLINE_MILESTONES], "quiet_hours": _normalize_quiet_hours(None)}
     all_prefs = load_document("reminder_preferences", {})
     stored = all_prefs.get(target, {}) if isinstance(all_prefs, dict) else {}
     stored = stored if isinstance(stored, dict) else {}
     return {
-        key: bool(stored.get(key, default))
-        for key, default in DEFAULT_REMINDER_PREFERENCES.items()
+        "deadline": bool(stored.get("deadline", True)),
+        "schedule": bool(stored.get("schedule", True)),
+        "completion": bool(stored.get("completion", True)),
+        "deadline_milestones": _normalize_milestones(stored.get("deadline_milestones")),
+        "quiet_hours": _normalize_quiet_hours(stored.get("quiet_hours")),
     }
 
 
-def set_reminder_preferences(username: str, updates: dict[str, Any]) -> dict[str, bool]:
+def set_reminder_preferences(username: str, updates: dict[str, Any]) -> dict[str, Any]:
     target = str(username or "").strip()
     if not target:
         raise ValueError("Tên tài khoản không được để trống.")
@@ -396,34 +518,63 @@ def set_reminder_preferences(username: str, updates: dict[str, Any]) -> dict[str
         all_prefs = {}
     stored = all_prefs.get(target, {})
     stored = stored if isinstance(stored, dict) else {}
-    for key in DEFAULT_REMINDER_PREFERENCES:
+    for key in ("deadline", "schedule", "completion"):
         if key in updates:
             stored[key] = bool(updates[key])
+    if "deadline_milestones" in updates:
+        stored["deadline_milestones"] = _normalize_milestones(updates["deadline_milestones"])
+    if "quiet_hours" in updates:
+        stored["quiet_hours"] = _normalize_quiet_hours(updates["quiet_hours"])
     all_prefs[target] = stored
     save_document("reminder_preferences", all_prefs)
     return get_reminder_preferences(target)
+
+
+def get_parent_usernames_for_student(student_username: str) -> list[str]:
+    """Phụ huynh đã liên kết với học sinh, loại trùng lặp."""
+    student = get_user_by_username(str(student_username or "").strip())
+    if not student or student.get("role") != "student":
+        return []
+    parent = str(student.get("parent_username", "")).strip()
+    return [parent] if parent else []
+
+
+def get_display_name(username: str) -> str:
+    user = get_user_by_username(str(username or "").strip())
+    if not user:
+        return str(username or "").strip()
+    return str(user.get("full_name") or user.get("username") or "").strip()
+
+
+def _minute_of_day(clock: str) -> int:
+    hour, _, minute = clock.partition(":")
+    return int(hour) * 60 + int(minute or 0)
+
+
+def in_quiet_hours(prefs: dict[str, Any], now: datetime) -> bool:
+    """Giờ yên lặng kéo dài qua đêm, nên so sánh theo vòng đồng hồ."""
+    quiet = prefs.get("quiet_hours")
+    if not isinstance(quiet, dict) or str(quiet.get("enabled", "")).lower() != "true":
+        return False
+    current = now.astimezone(STUDY_TIMEZONE)
+    minute = current.hour * 60 + current.minute
+    start = _minute_of_day(str(quiet.get("start", "22:00")))
+    end = _minute_of_day(str(quiet.get("end", "07:00")))
+    if start == end:
+        return False
+    if start < end:
+        return start <= minute < end
+    return minute >= start or minute < end
 
 
 # ---- Trạng thái để người dùng tự kiểm tra khi thông báo im ----
 def get_push_status(username: str) -> dict[str, Any]:
     target = str(username or "").strip()
     all_status = load_document("push_status", {})
-    if not isinstance(all_status, dict) or target not in all_status:
-        web_devices = len(get_user_web_tokens(target))
-        mobile_devices = len(get_user_mobile_tokens(target))
-        return {
-            "web_devices": web_devices,
-            "mobile_devices": mobile_devices,
-            "registered_at": None,
-            "last_success_at": None,
-            "last_error": None,
-            "last_reminder_at": None,
-            "reminders": get_reminder_preferences(target),
-            "expected": bool(web_devices or mobile_devices),
-        }
+    if not isinstance(all_status, dict):
+        all_status = {}
     entry = all_status.get(target)
     entry = entry if isinstance(entry, dict) else {}
-    reminders = get_reminder_preferences(target)
     return {
         "web_devices": len(get_user_web_tokens(target)),
         "mobile_devices": len(get_user_mobile_tokens(target)),
@@ -431,7 +582,9 @@ def get_push_status(username: str) -> dict[str, Any]:
         "last_success_at": entry.get("last_success_at"),
         "last_error": entry.get("last_error"),
         "last_reminder_at": entry.get("last_reminder_at"),
-        "reminders": reminders,
+        "consecutive_errors": int(entry.get("consecutive_errors") or 0),
+        "history": list(entry.get("history") or [])[-STATUS_HISTORY_LIMIT:],
+        "reminders": get_reminder_preferences(target),
         "expected": bool(get_user_web_tokens(target) or get_user_mobile_tokens(target)),
     }
 
@@ -460,11 +613,72 @@ def record_push_success(username: str, now: datetime | None = None) -> None:
         username,
         last_success_at=current.isoformat(timespec="seconds"),
         last_error=None,
+        consecutive_errors=0,
     )
 
 
 def record_push_error(username: str, error: str) -> None:
     _update_push_status(username, last_error=str(error)[:200])
+
+
+# ---- Nhat ky gui va canh bao ----
+def _append_history(username: str, entry: dict[str, Any], now: datetime) -> None:
+    all_status = load_document("push_status", {})
+    entry = dict(entry)
+    all_status = all_status if isinstance(all_status, dict) else {}
+    current = all_status.get(username)
+    current = current if isinstance(current, dict) else {}
+    history = current.get("history")
+    history = list(history) if isinstance(history, list) else []
+    history.append(entry)
+    all_status[username] = {**current, "history": history[-STATUS_HISTORY_LIMIT:]}
+    save_document("push_status", all_status)
+
+
+def record_delivery(
+    username: str,
+    kind: str,
+    was_sent: bool,
+    token_results: list[dict[str, Any]],
+    now: datetime | None = None,
+) -> None:
+    """Ghi lai tung lan gui va canh bao khi FCM loi lien tiep.
+
+    Nhờ đó người dùng thấy được vì sao thông báo im, thay vì im lặng.
+    """
+    current = now or datetime.now(STUDY_TIMEZONE)
+    stamp = current.isoformat(timespec="seconds")
+    unregistered = [item for item in token_results if item.get("status") == "unregistered"]
+    failed = [item for item in token_results if item.get("status") == "error"]
+    if was_sent:
+        _update_push_status(username, last_success_at=stamp, last_error=None, consecutive_errors=0)
+    elif failed:
+        _update_push_status(
+            username,
+            last_error=str(failed[0].get("error", ""))[:200],
+            consecutive_errors=int(_get_status(username).get("consecutive_errors") or 0) + 1,
+        )
+    _append_history(username, {
+        "at": stamp,
+        "kind": kind,
+        "sent": was_sent,
+        "devices": len(token_results),
+        "expired_tokens": len(unregistered),
+        "error": str(failed[0].get("error", ""))[:200] if failed else None,
+    }, current)
+    if not was_sent and _get_status(username).get("consecutive_errors", 0) >= CONSECUTIVE_ERROR_ALERT_LIMIT:
+        logger.warning(
+            "FCM lỗi %s lần liên tiếp cho %s: %s",
+            _get_status(username).get("consecutive_errors"),
+            username,
+            _get_status(username).get("last_error"),
+        )
+
+
+def _get_status(username: str) -> dict[str, Any]:
+    all_status = load_document("push_status", {})
+    entry = all_status.get(str(username or "").strip(), {}) if isinstance(all_status, dict) else {}
+    return entry if isinstance(entry, dict) else {}
 
 
 def get_registered_tokens() -> list[str]:
@@ -768,15 +982,30 @@ def send_due_task_reminders(now: datetime | None = None) -> list[dict[str, Any]]
         username = str(task.get("owner_username", "")).strip()
         if not username:
             continue
-        if not get_reminder_preferences(username).get("deadline", True):
+        prefs = get_reminder_preferences(username)
+        if not prefs.get("deadline", True):
             continue
+        enabled_milestones = {int(item) for item in prefs.get("deadline_milestones", DEFAULT_DEADLINE_MILESTONES)}
         task_id = str(task.get("id", ""))
         for offset, title, window in REMINDER_MILESTONES:
+            if int(offset.total_seconds() // 60) not in enabled_milestones:
+                continue
             lower_bound = max(offset - window, timedelta(0))
             if not lower_bound < remaining <= offset:
                 continue
             reminder_key = f"{username}|{task_id}|{due_at.isoformat()}|{int(offset.total_seconds())}"
             if sent_state.get(reminder_key):
+                break
+            if in_quiet_hours(prefs, current_time):
+                # De sang nhip sau, khong danh dau da gui de khong bo qua moc.
+                results.append({
+                    "username": username,
+                    "task_id": task_id,
+                    "milestone_seconds": int(offset.total_seconds()),
+                    "sent": False,
+                    "deferred": "quiet_hours",
+                    "devices": 0,
+                })
                 break
             token_results = send_push_to_user(
                 username,
@@ -792,6 +1021,7 @@ def send_due_task_reminders(now: datetime | None = None) -> list[dict[str, Any]]
                 "sent": was_sent,
                 "devices": len(token_results),
             })
+            record_delivery(username, "deadline", was_sent, token_results, current_time)
             if was_sent:
                 sent_state[reminder_key] = current_time.isoformat(timespec="seconds")
                 _update_push_status(username, last_reminder_at=current_time.isoformat(timespec="seconds"))
@@ -822,7 +1052,8 @@ def send_schedule_reminders(now: datetime | None = None) -> list[dict[str, Any]]
     results: list[dict[str, Any]] = []
     changed = False
     for username in list(dict.fromkeys([*get_web_push_usernames(), *get_mobile_push_usernames()])):
-        if not get_reminder_preferences(username).get("schedule", True):
+        prefs = get_reminder_preferences(username)
+        if not prefs.get("schedule", True):
             continue
         for payload in _build_notification_payloads_for_user(username, current_time):
             subject = payload.get("title", "")
@@ -832,6 +1063,8 @@ def send_schedule_reminders(now: datetime | None = None) -> list[dict[str, Any]]
             reminder_key = f"{username}|{current_time.date()}|{subject}|{lesson_info}"
             if sent_state.get(reminder_key):
                 continue
+            if in_quiet_hours(prefs, current_time):
+                continue
             token_results = send_push_to_user(username, payload["title"], payload["body"], "/student#schedule")
             was_sent = any(item.get("status") == "sent" for item in token_results)
             results.append({
@@ -840,12 +1073,56 @@ def send_schedule_reminders(now: datetime | None = None) -> list[dict[str, Any]]
                 "sent": was_sent,
                 "devices": len(token_results),
             })
+            record_delivery(username, "schedule", was_sent, token_results, current_time)
             if was_sent:
                 sent_state[reminder_key] = current_time.isoformat(timespec="seconds")
                 changed = True
 
     if changed:
         save_document("push_schedule_state", sent_state)
+    return results
+
+
+def send_completion_notifications(
+    student_username: str,
+    task_title: str,
+    subject: str = "",
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Thông báo cho phụ huynh khi học sinh hoàn thành nhiệm vụ.
+
+    Phụ huynh tự bật qua tài khoản liên kết, và tôn trọng giờ yên lặng của họ.
+    """
+    student = str(student_username or "").strip()
+    if not student:
+        return []
+    results: list[dict[str, Any]] = []
+    for parent_username in get_parent_usernames_for_student(student):
+        prefs = get_reminder_preferences(parent_username)
+        if not prefs.get("completion", True):
+            continue
+        current = now or datetime.now(STUDY_TIMEZONE)
+        if in_quiet_hours(prefs, current):
+            continue
+        student_name = get_display_name(student)
+        body_parts = [f"{student_name} đã hoàn thành: {task_title}."]
+        if subject:
+            body_parts.append(f"Môn: {subject}.")
+        token_results = send_push_to_user(
+            parent_username,
+            "Học sinh đã hoàn thành bài",
+            " ".join(body_parts),
+            "/parent",
+        )
+        was_sent = any(item.get("status") == "sent" for item in token_results)
+        record_delivery(parent_username, "completion", was_sent, token_results, current)
+        results.append({
+            "username": parent_username,
+            "student": student,
+            "task": task_title,
+            "sent": was_sent,
+            "devices": len(token_results),
+        })
     return results
 
 

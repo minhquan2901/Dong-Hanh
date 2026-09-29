@@ -107,6 +107,20 @@
       .primary-button { color: #fff; background: var(--primary); }
       .secondary-button { color: var(--primary); background: var(--primary-soft); }
       .management-message { min-height: 20px; margin-top: 10px; color: var(--muted); font-size: .85rem; }
+      .push-settings-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 12px; font-size: .92rem; }
+      .push-toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+      .push-time-field { display: inline-flex; align-items: center; gap: 4px; }
+      .push-time-field input { font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--text); }
+      .push-device-count { margin-left: auto; color: var(--muted); font-size: .84rem; }
+      .push-device-list { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+      .push-device-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border: 1px solid var(--line); border-radius: 999px; font-size: .82rem; }
+      .push-device-chip button { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 1rem; line-height: 1; }
+      .push-device-chip button:hover { color: var(--secondary); }
+      .parent-toast-stack { position: fixed; right: 20px; bottom: 20px; z-index: 40; display: grid; gap: 10px; width: min(360px, calc(100vw - 32px)); }
+      .parent-toast { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 14px 16px; background: var(--card); border: 1px solid var(--line); border-left: 5px solid var(--primary); border-radius: 12px; box-shadow: 0 16px 36px rgba(15, 23, 42, .18); }
+      .parent-toast p { margin: 3px 0 0; color: var(--muted); font-size: .86rem; }
+      .parent-toast button { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 1.1rem; }
+      body.dark .push-time-field input { background: #232a2d; color: #d0dbd7; }
       .student-profile-list { display: grid; gap: 10px; }
       .managed-student { display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
       .student-avatar { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; background: #e0edff; color: var(--primary); font-weight: 700; }
@@ -229,6 +243,25 @@
         <div id="pin-login-setting-message" class="security-message" role="status"></div>
       </section>
 
+      <section class="panel" id="push-settings" hidden>
+        <h2 class="panel-title">Cài đặt thông báo</h2>
+        <p class="sub" id="push-status-line">Chưa đăng ký thiết bị nào.</p>
+        <div class="push-settings-row">
+          <button class="secondary-button" id="web-notification-toggle" type="button">Bật thông báo</button>
+          <label class="push-toggle"><input type="checkbox" id="push-reminder-completion" checked /> Báo khi học sinh hoàn thành bài</label>
+          <span class="push-device-count" id="push-device-count"></span>
+        </div>
+        <div class="push-settings-row">
+          <label class="push-toggle"><input type="checkbox" id="push-quiet-enabled" /> Không nhắc trong giờ yên lặng</label>
+          <label class="push-time-field">Từ <input type="time" id="push-quiet-start" value="22:00" /></label>
+          <label class="push-time-field">Đến <input type="time" id="push-quiet-end" value="07:00" /></label>
+        </div>
+        <div class="push-settings-row">
+          <button class="secondary-button" id="push-test-button" type="button">Gửi thông báo thử</button>
+          <span class="push-device-list" id="push-device-list"></span>
+        </div>
+      </section>
+
       <section id="stats-grid" class="stats"></section>
 
       <section class="grid">
@@ -255,6 +288,8 @@
       </section>
     </main>
 
+    <div id="parent-toast-stack" class="parent-toast-stack" aria-live="polite"></div>
+
     <script src="/static/confirm.js"></script>
     <script>
       const user = JSON.parse(localStorage.getItem('study_sync_user') || 'null');
@@ -269,6 +304,164 @@
       let studentsData = [];
       const themeKey = `studysync-theme-${user.username}`;
       const themeToggle = document.getElementById('theme-toggle');
+      const pushSettings = document.getElementById('push-settings');
+      const pushStatusLine = document.getElementById('push-status-line');
+      const pushDeviceList = document.getElementById('push-device-list');
+      const pushDeviceCount = document.getElementById('push-device-count');
+      const completionReminder = document.getElementById('push-reminder-completion');
+      const quietEnabled = document.getElementById('push-quiet-enabled');
+      const quietStart = document.getElementById('push-quiet-start');
+      const quietEnd = document.getElementById('push-quiet-end');
+      const pushTestButton = document.getElementById('push-test-button');
+      const webNotificationToggle = document.getElementById('web-notification-toggle');
+
+      function showToast(title, message) {
+        const stack = document.getElementById('parent-toast-stack');
+        const toast = document.createElement('div');
+        toast.className = 'parent-toast';
+        toast.innerHTML = `<div><strong></strong><p></p></div><button type="button" aria-label="Đóng">×</button>`;
+        toast.querySelector('strong').textContent = title;
+        toast.querySelector('p').textContent = message || '';
+        toast.querySelector('button').addEventListener('click', () => toast.remove());
+        stack.appendChild(toast);
+        window.setTimeout(() => toast.remove(), 6000);
+      }
+
+      function renderDeviceList(devices) {
+        pushDeviceList.innerHTML = '';
+        for (const device of devices) {
+          const chip = document.createElement('span');
+          chip.className = 'push-device-chip';
+          const kind = device.device_type === 'mobile' ? 'Điện thoại' : 'Trình duyệt';
+          chip.textContent = kind + (device.label ? ` · ${device.label}` : '');
+          const remove = document.createElement('button');
+          remove.type = 'button';
+          remove.textContent = '×';
+          remove.title = 'Tắt thông báo trên thiết bị này';
+          remove.addEventListener('click', async () => {
+            remove.disabled = true;
+            try {
+              const response = await fetch('/api/push/devices/remove', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` },
+                body: JSON.stringify({ username: user.username, device_id: device.id }),
+              });
+              if (!response.ok) throw new Error('Không tắt được thiết bị này.');
+              showToast('Đã tắt thiết bị', 'Thiết bị này sẽ không nhận thông báo nữa.');
+              await refreshPushSettings();
+            } catch (error) {
+              remove.disabled = false;
+              showToast('Không tắt được thiết bị', error.message);
+            }
+          });
+          chip.appendChild(remove);
+          pushDeviceList.appendChild(chip);
+        }
+      }
+
+      async function refreshPushSettings() {
+        if (!sessionToken) return;
+        try {
+          const response = await fetch(`/api/push/status?username=${encodeURIComponent(user.username)}`, {
+            headers: { 'Authorization': `Bearer ${sessionToken}` }, cache: 'no-store',
+          });
+          if (!response.ok) return;
+          const status = await response.json();
+          pushSettings.hidden = false;
+          completionReminder.checked = status.reminders.completion;
+          const quiet = status.reminders.quiet_hours || {};
+          quietEnabled.checked = quiet.enabled === true;
+          quietStart.value = quiet.start || '22:00';
+          quietEnd.value = quiet.end || '07:00';
+          const count = status.web_devices + status.mobile_devices;
+          pushDeviceCount.textContent = `${count} thiết bị đã đăng ký`;
+          pushStatusLine.textContent = status.last_error
+            ? `Lần gửi gần nhất bị lỗi (${status.consecutive_errors || 1} lần): ${status.last_error}`
+            : (status.last_success_at ? `Gửi thành công gần nhất: ${status.last_success_at}`
+              : (count ? 'Đã đăng ký, đang chờ thông báo đầu tiên.' : 'Chưa đăng ký thiết bị nào.'));
+          renderDeviceList(status.devices || []);
+        } catch (error) {
+          console.error('Không đọc được trạng thái thông báo:', error);
+        }
+      }
+
+      async function saveReminderPreferences(updates) {
+        const response = await fetch('/api/push/preferences', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` },
+          body: JSON.stringify({ username: user.username, ...updates }),
+        });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.detail || 'Không lưu được tùy chọn nhắc.');
+        }
+        await refreshPushSettings();
+      }
+
+      completionReminder.addEventListener('change', () => {
+        saveReminderPreferences({ completion: completionReminder.checked })
+          .catch((error) => showToast('Cài đặt thông báo', error.message));
+      });
+      quietEnabled.addEventListener('change', () => {
+        saveReminderPreferences({
+          quiet_hours: {
+            enabled: quietEnabled.checked ? 'true' : 'false',
+            start: quietStart.value || '22:00',
+            end: quietEnd.value || '07:00',
+          },
+        }).catch((error) => showToast('Cài đặt thông báo', error.message));
+      });
+      for (const input of [quietStart, quietEnd]) {
+        input.addEventListener('change', () => {
+          if (!quietEnabled.checked) return;
+          saveReminderPreferences({
+            quiet_hours: {
+              enabled: 'true',
+              start: quietStart.value || '22:00',
+              end: quietEnd.value || '07:00',
+            },
+          }).catch((error) => showToast('Cài đặt thông báo', error.message));
+        });
+      }
+      pushTestButton.addEventListener('click', async () => {
+        pushTestButton.disabled = true;
+        try {
+          const response = await fetch('/api/push/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` },
+            body: JSON.stringify({ username: user.username, device_id: '' }),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data.detail || 'Không gửi được thông báo thử.');
+          showToast('Thông báo thử', data.message);
+        } catch (error) {
+          showToast('Không gửi được thông báo thử', error.message);
+        } finally {
+          pushTestButton.disabled = false;
+        }
+      });
+      webNotificationToggle.addEventListener('click', async () => {
+        webNotificationToggle.disabled = true;
+        try {
+          const mod = await import('/firebase-notifications.js');
+          await mod.enableWebNotifications(user.username);
+          localStorage.setItem(`studysync-web-notifications-${user.username}`, 'true');
+          webNotificationToggle.textContent = 'Đã bật thông báo';
+          await refreshPushSettings();
+          showToast('Đã bật thông báo', 'Thông báo đã được bật cho tài khoản phụ huynh.');
+        } catch (error) {
+          showToast('Chưa bật được thông báo', error.message || 'Hãy kiểm tra quyền thông báo của trình duyệt.');
+        } finally {
+          webNotificationToggle.disabled = false;
+        }
+      });
+      if (localStorage.getItem(`studysync-web-notifications-${user.username}`) === 'true'
+        && 'Notification' in window && Notification.permission === 'granted') {
+        import('/firebase-notifications.js')
+          .then((mod) => mod.enableWebNotifications(user.username))
+          .catch(() => {});
+      }
+      void refreshPushSettings();
       function setTheme(theme) {
         document.body.classList.toggle('dark', theme === 'dark');
         themeToggle.textContent = theme === 'dark' ? 'Chế độ sáng' : 'Chế độ tối';
