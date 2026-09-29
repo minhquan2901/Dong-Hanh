@@ -100,9 +100,9 @@ def test_create_assignment_persists_vietnam_due_time(tmp_path, monkeypatch):
     monkeypatch.setattr("owner_service.USAGE_FILE", tmp_path / "feature_usage.json")
     monkeypatch.setattr("database.study_repository.data_file", lambda name: tmp_path / name)
     monkeypatch.setenv("STUDYSYNC_SESSION_SECRET", "test-session-secret-with-at-least-32-chars")
-    register_user("student-time", "Pass1234", "student", "Học sinh")
+    register_user("student_time", "Pass1234", "student", "Học sinh", "8/1")
     from owner_auth import create_user_token
-    token = create_user_token("student-time", "student")
+    token = create_user_token("student_time", "student")
     client = TestClient(app)
 
     response = client.post("/api/assignments", headers={
@@ -113,7 +113,7 @@ def test_create_assignment_persists_vietnam_due_time(tmp_path, monkeypatch):
         "due_date": "2026-09-30",
         "due_time": "20:45:00",
         "priority": "Cao",
-        "username": "student-time",
+        "username": "student_time",
     })
 
     assert response.status_code == 200

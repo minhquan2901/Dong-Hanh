@@ -17,6 +17,7 @@ from auth_service import (
     get_link_requests_for_student,
     get_students_for_parent,
     get_user_by_username,
+    load_users,
     register_user,
     respond_to_parent_link_request,
     set_secondary_pin,
@@ -41,10 +42,23 @@ from owner_auth import (
     verify_owner_token,
     verify_user_token,
 )
-from owner_service import delete_managed_user, get_owner_overview, list_managed_users, managed_user_by_id, record_successful_feature_use, set_managed_user_active
+from owner_service import delete_managed_user, get_owner_overview, list_managed_users, managed_user_by_id, record_successful_feature_use, rename_managed_user, set_managed_user_active
 from data_storage import account_data_status
 from db import is_postgres, load_document, storage_status
 from feedback_service import create_report, list_reports, mark_report_read
+from username_policy import (
+    generate_suggested_username,
+    get_username_bot_status,
+    identity_violations,
+    record_signup_violation,
+    resolve_signup_violation,
+    resolve_username_violation,
+    scan_registered_users,
+    set_username_bot_enabled,
+    validate_class_name,
+    validate_display_name,
+    validate_username,
+)
 
 ROOT = Path(__file__).resolve().parent
 STATIC_DIR = ROOT / "static"
@@ -77,6 +91,13 @@ class AuthPayload(BaseModel):
     role: str = "student"
     class_name: str | None = None
     pin: str | None = None
+
+
+class IdentityUpdatePayload(BaseModel):
+    username: str
+    new_username: str
+    full_name: str
+    class_name: str = ""
 
 
 class ParentLinkPayload(BaseModel):
@@ -158,6 +179,10 @@ class OwnerLoginPayload(BaseModel):
 
 class OwnerUserStatusPayload(BaseModel):
     is_active: bool
+
+
+class UsernameBotSettingsPayload(BaseModel):
+    enabled: bool
 class ProfileUpdatePayload(BaseModel):
     username: str
     full_name: str
@@ -170,7 +195,7 @@ class PasswordUpdatePayload(BaseModel):
     new_password: str
 class OwnerUserEditPayload(BaseModel):
     full_name: str
-    class_name: str = ""
+    class_name: str | None = None
     avatar: str | None = None
 
 class ReportPayload(BaseModel):
@@ -195,6 +220,7 @@ def _require_user_session(
     authorization: str | None,
     username: str,
     allowed_roles: set[str] | None = None,
+    allow_identity_update: bool = False,
 ):
     scheme, _, token = str(authorization or "").partition(" ")
     user = get_user_by_username(username)
@@ -208,6 +234,11 @@ def _require_user_session(
         raise HTTPException(status_code=401, detail="Vui lòng đăng nhập lại để tiếp tục.")
     if allowed_roles and user.get("role") not in allowed_roles:
         raise HTTPException(status_code=403, detail="Không có quyền thực hiện thao tác này.")
+    if not allow_identity_update and get_username_bot_status()["enabled"] and identity_violations(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Bot kiểm duyệt yêu cầu cập nhật username, họ tên hoặc lớp trước khi tiếp tục.",
+        )
     return user
 
 
@@ -488,6 +519,48 @@ def owner_delete_user(user_id: str, authorization: str | None = Header(default=N
     return {"message": "Đã xóa tài khoản và dữ liệu liên quan."}
 
 
+@app.get("/api/owner/username-bot")
+def owner_username_bot_status(authorization: str | None = Header(default=None)):
+    _require_owner(authorization)
+    return get_username_bot_status()
+
+
+@app.patch("/api/owner/username-bot")
+def owner_update_username_bot(
+    payload: UsernameBotSettingsPayload,
+    authorization: str | None = Header(default=None),
+):
+    _require_owner(authorization)
+    return set_username_bot_enabled(payload.enabled)
+
+
+@app.post("/api/owner/username-bot/scan")
+def owner_scan_usernames(authorization: str | None = Header(default=None)):
+    _require_owner(authorization)
+    return scan_registered_users(load_users())
+
+
+@app.post("/api/owner/username-bot/violations/{username}/review")
+def owner_review_username_violation(
+    username: str,
+    authorization: str | None = Header(default=None),
+):
+    _require_owner(authorization)
+    if not resolve_username_violation(username):
+        raise HTTPException(status_code=404, detail="Không tìm thấy cảnh báo đang chờ.")
+    return get_username_bot_status()
+
+
+@app.post("/api/internal/username-bot-scan")
+def trigger_username_bot_scan(x_cron_secret: str | None = Header(default=None, alias="X-Cron-Secret")):
+    expected_secret = os.getenv("USERNAME_BOT_CRON_SECRET", "")
+    if not expected_secret:
+        raise HTTPException(status_code=503, detail="Chưa cấu hình USERNAME_BOT_CRON_SECRET.")
+    if not x_cron_secret or not secrets.compare_digest(x_cron_secret, expected_secret):
+        raise HTTPException(status_code=403, detail="Không được phép gọi tác vụ này.")
+    return scan_registered_users(load_users())
+
+
 @app.post("/api/auth/login")
 def login(payload: AuthPayload):
     user = authenticate_user(payload.username, payload.password)
@@ -498,6 +571,10 @@ def login(payload: AuthPayload):
             return {"requires_pin": True, "message": "Nhập mã PIN để tiếp tục đăng nhập."}
         if not verify_secondary_pin(payload.username, payload.pin):
             raise HTTPException(status_code=401, detail="Mã PIN không đúng.")
+    bot_enabled = get_username_bot_status()["enabled"]
+    policy_reasons = identity_violations(user) if bot_enabled else []
+    if bot_enabled:
+        scan_registered_users(load_users())
     try:
         session_token = create_user_token(str(user.get("username", "")), str(user.get("role", "student")), int(user.get("session_version", 0)))
     except RuntimeError as exc:
@@ -515,7 +592,17 @@ def login(payload: AuthPayload):
         "is_active": user.get("is_active", True),
         "pin_login_enabled": bool(user.get("pin_login_enabled", False)),
     }
-    return {"message": "Đăng nhập thành công.", "user": sanitized, "token": session_token}
+    return {
+        "message": "Đăng nhập thành công.",
+        "user": sanitized,
+        "token": session_token,
+        "identity_update_required": bool(policy_reasons),
+        "identity_reasons": policy_reasons,
+        "username_suggestions": generate_suggested_username(
+            str(user.get("full_name", "")),
+            existing_usernames=[str(item.get("username", "")) for item in load_users()],
+        ),
+    }
 
 
 @app.post("/api/auth/register")
@@ -525,16 +612,50 @@ def register(payload: AuthPayload):
     if payload.role.strip().lower() == "student" and not (payload.full_name or "").strip():
         raise HTTPException(status_code=400, detail="Họ tên không được để trống.")
 
+    policy_enabled = get_username_bot_status()["enabled"]
+    class_name = payload.class_name or ""
+    if policy_enabled:
+        issues: list[str] = []
+        username_valid, username_message = validate_username(payload.username)
+        if not username_valid:
+            issues.append(username_message)
+        full_name = payload.full_name or payload.username
+        if payload.role.strip().lower() == "student":
+            name_valid, name_message = validate_display_name(full_name)
+            if not name_valid:
+                issues.append(name_message)
+        if payload.role.strip().lower() == "student":
+            class_valid, class_result = validate_class_name(class_name)
+            if not class_valid:
+                issues.append(class_result)
+            else:
+                class_name = class_result
+        if issues:
+            record_signup_violation(payload.username, issues)
+            raise HTTPException(
+                status_code=400,
+                detail=" ".join(issues),
+                headers={"X-Username-Suggestions": ",".join(generate_suggested_username(
+                    full_name, existing_usernames=[str(item.get("username", "")) for item in load_users()]
+                ))},
+            )
+
     try:
         user = register_user(
             username=payload.username,
             password=payload.password,
             role=payload.role,
             full_name=payload.full_name or payload.username,
-            class_name=payload.class_name or "",
+            class_name=class_name,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        headers = None
+        if "đã tồn tại" in str(exc).casefold():
+            headers = {"X-Username-Suggestions": ",".join(generate_suggested_username(
+                payload.full_name or payload.username,
+                existing_usernames=[str(item.get("username", "")) for item in load_users()],
+            ))}
+        raise HTTPException(status_code=400, detail=str(exc), headers=headers) from exc
 
     safe_user = {
         "id": user.get("id"),
@@ -548,7 +669,66 @@ def register(payload: AuthPayload):
         "is_active": user.get("is_active", True),
         "pin_login_enabled": bool(user.get("pin_login_enabled", False)),
     }
+    resolve_signup_violation(str(user.get("username", "")))
+    if policy_enabled:
+        scan_registered_users(load_users())
     return {"message": "Tạo tài khoản thành công.", "user": safe_user}
+
+
+@app.post("/api/profile/identity")
+def update_required_identity(
+    payload: IdentityUpdatePayload,
+    authorization: str | None = Header(default=None),
+):
+    current_user = _require_user_session(
+        authorization, payload.username, allow_identity_update=True
+    )
+    username_valid, username_message = validate_username(payload.new_username)
+    if not username_valid:
+        raise HTTPException(
+            status_code=400,
+            detail=username_message,
+            headers={"X-Username-Suggestions": ",".join(generate_suggested_username(
+                payload.full_name,
+                existing_usernames=[str(item.get("username", "")) for item in load_users()],
+            ))},
+        )
+    name_valid, name_message = validate_display_name(payload.full_name)
+    if not name_valid:
+        raise HTTPException(status_code=400, detail=name_message)
+    class_name = payload.class_name
+    if current_user.get("role") == "student":
+        class_valid, class_result = validate_class_name(payload.class_name)
+        if not class_valid:
+            raise HTTPException(status_code=400, detail=class_result)
+        class_name = class_result
+    try:
+        updated = rename_managed_user(
+            payload.username, payload.new_username, payload.full_name, class_name
+        )
+        new_token = create_user_token(
+            str(updated["username"]),
+            str(updated.get("role", "student")),
+            int(updated.get("session_version", 0)),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "message": "Đã cập nhật username và hồ sơ. Hãy đăng nhập lại bằng username mới.",
+        "user": {
+            "id": updated.get("id"),
+            "username": updated.get("username"),
+            "full_name": updated.get("full_name"),
+            "role": updated.get("role"),
+            "class_name": updated.get("class_name", ""),
+            "student_id": updated.get("student_id", ""),
+            "avatar": updated.get("avatar", ""),
+            "parent_username": updated.get("parent_username", ""),
+            "is_active": updated.get("is_active", True),
+            "pin_login_enabled": bool(updated.get("pin_login_enabled", False)),
+        },
+        "token": new_token,
+    }
 
 
 @app.get("/api/dashboard/student")
@@ -928,7 +1108,7 @@ def parent_children(username: str = Query(...)):
 
 @app.get("/api/profile")
 def user_profile(username: str = Query(...), authorization: str | None = Header(default=None)):
-    user = _require_user_session(authorization, username)
+    user = _require_user_session(authorization, username, allow_identity_update=True)
     return {"user": _public_user(user)}
 
 
@@ -940,10 +1120,20 @@ def _public_user(user: dict) -> dict:
 
 @app.patch("/api/profile")
 def save_profile(payload: ProfileUpdatePayload, authorization: str | None = Header(default=None)):
-    _require_user_session(authorization, payload.username)
+    current_user = _require_user_session(authorization, payload.username)
+    class_name = payload.class_name
+    if get_username_bot_status()["enabled"] and current_user.get("role") == "student":
+        name_valid, name_message = validate_display_name(payload.full_name)
+        if not name_valid:
+            raise HTTPException(status_code=400, detail=name_message)
+        class_valid, class_result = validate_class_name(payload.class_name)
+        if not class_valid:
+            raise HTTPException(status_code=400, detail=class_result)
+        class_name = class_result
     try:
         user = update_account(payload.username, full_name=payload.full_name,
-                              class_name=payload.class_name, avatar=payload.avatar)
+                              class_name=class_name,
+                              avatar=payload.avatar)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"user": _public_user(user)}
@@ -964,9 +1154,18 @@ def owner_edit_user(user_id: str, payload: OwnerUserEditPayload, authorization: 
     user = managed_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
+    class_name = str(user.get("class_name", "")) if payload.class_name is None else payload.class_name
+    if get_username_bot_status()["enabled"] and user.get("role") == "student":
+        name_valid, name_message = validate_display_name(payload.full_name)
+        if not name_valid:
+            raise HTTPException(status_code=400, detail=name_message)
+        class_valid, class_result = validate_class_name(class_name)
+        if not class_valid:
+            raise HTTPException(status_code=400, detail=class_result)
+        class_name = class_result
     try:
         updated = update_account(user["username"], full_name=payload.full_name,
-                                 class_name=payload.class_name, avatar=payload.avatar, by_owner=True)
+                                 class_name=class_name, avatar=payload.avatar, by_owner=True)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"user": _public_user(updated)}

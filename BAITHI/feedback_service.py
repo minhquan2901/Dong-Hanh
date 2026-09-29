@@ -46,3 +46,18 @@ def mark_report_read(report_id: str, read: bool) -> bool:
                 save_document("feedback_inbox", items)
                 return True
         return False
+
+
+def rename_report_username(old_username: str, new_username: str) -> None:
+    old_name = str(old_username or "").strip().casefold()
+    if not old_name:
+        return
+    with INBOX_LOCK:
+        items = list_reports()
+        changed = False
+        for item in items:
+            if str(item.get("username", "")).strip().casefold() == old_name:
+                item["username"] = new_username
+                changed = True
+        if changed:
+            save_document("feedback_inbox", items)

@@ -171,6 +171,24 @@ def remove_user_web_tokens(username: str) -> None:
     _write_json(WEB_PUSH_SUBSCRIPTIONS_FILE, subscriptions)
 
 
+def rename_user_web_tokens(old_username: str, new_username: str) -> None:
+    old_name = str(old_username or "").strip()
+    new_name = str(new_username or "").strip()
+    if not old_name or not new_name or old_name == new_name:
+        return
+    subscriptions = _read_json(WEB_PUSH_SUBSCRIPTIONS_FILE, {})
+    if not isinstance(subscriptions, dict):
+        raise RuntimeError("Dữ liệu token thông báo không hợp lệ.")
+    old_tokens = subscriptions.pop(old_name, [])
+    if not isinstance(old_tokens, list):
+        raise RuntimeError("Danh sách token thông báo không hợp lệ.")
+    new_tokens = subscriptions.get(new_name, [])
+    if not isinstance(new_tokens, list):
+        raise RuntimeError("Danh sách token thông báo không hợp lệ.")
+    subscriptions[new_name] = list(dict.fromkeys([*new_tokens, *old_tokens]))
+    _write_json(WEB_PUSH_SUBSCRIPTIONS_FILE, subscriptions)
+
+
 def get_web_push_usernames() -> list[str]:
     subscriptions = _read_json(WEB_PUSH_SUBSCRIPTIONS_FILE, {})
     if not isinstance(subscriptions, dict):

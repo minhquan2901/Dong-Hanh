@@ -1,0 +1,157 @@
+from __future__ import annotations
+
+from datetime import date
+
+from auth_service import register_user, rename_user_account
+from fastapi.testclient import TestClient
+from bus.study_bus import StudyBus
+from username_policy import (
+    generate_suggested_username,
+    identity_violations,
+    scan_registered_users,
+    validate_class_name,
+    validate_display_name,
+    validate_username,
+)
+from web_app import app
+
+
+def test_username_policy_accepts_only_expected_format():
+    assert validate_username("An_Nguyen11") == (True, "")
+    assert not validate_username("1nguyen11")[0]
+    assert not validate_username("an.nguyen")[0]
+    assert not validate_username("qwerty")[0]
+    assert not validate_username("admin_01")[0]
+    assert not validate_username("aaaaaa")[0]
+
+
+def test_class_policy_accepts_only_grades_six_through_nine():
+    assert validate_class_name(" 8 / 2 ") == (True, "8/2")
+    assert not validate_class_name("5/1")[0]
+    assert not validate_class_name("10A1")[0]
+    assert not validate_class_name("9/4")[0]
+
+
+def test_username_suggestions_use_ascii_and_do_not_require_birth_year():
+    suggestions = generate_suggested_username("Nguyễn Văn An")
+    assert suggestions
+    assert all(validate_username(item)[0] for item in suggestions)
+    assert suggestions[0] == "an_nguyen"
+
+
+def test_identity_scan_tracks_violations_and_resolves_fixed_user(monkeypatch):
+    state = {"enabled": True, "violations": [], "last_scan_at": None}
+    monkeypatch.setattr("username_policy.load_document", lambda *_args, **_kwargs: state.copy())
+
+    def save_document(_key, value):
+        state.update(value)
+
+    monkeypatch.setattr("username_policy.save_document", save_document)
+    user = {
+        "username": "old.name",
+        "full_name": "Học sinh A",
+        "class_name": "10A1",
+        "role": "student",
+    }
+
+    first = scan_registered_users([user])
+    assert first["violation_count"] == 1
+    assert len(identity_violations(user)) == 2
+
+    fixed = {**user, "username": "an_nguyen", "class_name": "8/2"}
+    second = scan_registered_users([fixed])
+    assert second["violation_count"] == 0
+    assert second["violations"][0]["status"] == "resolved"
+
+
+def test_rename_user_preserves_id_and_updates_parent_links(tmp_path, monkeypatch):
+    users_file = tmp_path / "users.json"
+    requests = [
+        {"parent_username": "parent01", "student_username": "student01", "status": "pending"}
+    ]
+    monkeypatch.setattr("auth_service.USERS_FILE", users_file)
+    monkeypatch.setattr("auth_service._load_link_requests", lambda: requests)
+    monkeypatch.setattr("auth_service._save_link_requests", lambda items: requests.__setitem__(slice(None), items))
+    register_user("parent01", "Password1", "parent", "Phụ huynh")
+    student = register_user("student01", "Password1", "student", "Học sinh", "8/1")
+
+    renamed = rename_user_account("student01", "student_new", "Học sinh mới", "8/2")
+
+    assert renamed["id"] == student["id"]
+    assert renamed["username"] == "student_new"
+    assert renamed["session_version"] == 1
+    assert requests[0]["student_username"] == "student_new"
+
+
+def test_registration_rejects_bad_username_and_class_with_suggestions(tmp_path, monkeypatch):
+    monkeypatch.setattr("auth_service.USERS_FILE", tmp_path / "users.json")
+    monkeypatch.setattr("web_app.get_username_bot_status", lambda: {"enabled": True})
+    state = {"enabled": True, "violations": [], "last_scan_at": None}
+    monkeypatch.setattr("username_policy.load_document", lambda *_args, **_kwargs: state.copy())
+
+    def save_document(_key, value):
+        state.update(value)
+
+    monkeypatch.setattr("username_policy.save_document", save_document)
+    client = TestClient(app)
+
+    invalid = client.post("/api/auth/register", json={
+        "username": "asdfgh",
+        "password": "Password1",
+        "full_name": "Nguyễn Văn An",
+        "role": "student",
+        "class_name": "10A1",
+    })
+    assert invalid.status_code == 400
+    assert "X-Username-Suggestions" in invalid.headers
+    assert state["violations"][0]["status"] == "pending"
+
+    valid = client.post("/api/auth/register", json={
+        "username": "an_nguyen",
+        "password": "Password1",
+        "full_name": "Nguyễn Văn An",
+        "role": "student",
+        "class_name": "8/2",
+    })
+    assert valid.status_code == 200
+    assert valid.json()["user"]["class_name"] == "8/2"
+    assert state["violations"][0]["status"] == "pending"
+
+
+def test_legacy_user_can_update_identity_and_keep_study_data(tmp_path, monkeypatch):
+    monkeypatch.setattr("auth_service.USERS_FILE", tmp_path / "users.json")
+    monkeypatch.setattr("owner_service.USAGE_FILE", tmp_path / "feature_usage.json")
+    monkeypatch.setattr("database.study_repository.data_file", lambda name: tmp_path / name)
+    monkeypatch.setattr("backend.notification_service.WEB_PUSH_SUBSCRIPTIONS_FILE", tmp_path / "tokens.json")
+    monkeypatch.setattr("web_app.get_username_bot_status", lambda: {"enabled": True})
+    monkeypatch.setattr("web_app.scan_registered_users", lambda _users: {})
+    monkeypatch.setattr("owner_service.scan_registered_users", lambda _users: {})
+    documents = {"feature_usage": [], "push_reminder_state": {}}
+    monkeypatch.setattr("owner_service.load_document", lambda key, *_args, **_kwargs: documents.get(key, []))
+    monkeypatch.setattr("owner_service.save_document", lambda key, value: documents.__setitem__(key, value))
+    monkeypatch.setattr("feedback_service.load_document", lambda key, default, *_args, **_kwargs: default)
+    monkeypatch.setattr("feedback_service.save_document", lambda *_args, **_kwargs: None)
+    monkeypatch.setenv("STUDYSYNC_SESSION_SECRET", "test-session-secret-for-identity-change")
+
+    legacy = register_user("old.name", "Password1", "student", "Học sinh", "10A1")
+    StudyBus().add_assignment("Bài giữ lại", "Toán", date(2026, 10, 1), "Cao", "old.name")
+    client = TestClient(app)
+    login = client.post("/api/auth/login", json={"username": "old.name", "password": "Password1"})
+    assert login.status_code == 200
+    assert login.json()["identity_update_required"] is True
+    old_headers = {"Authorization": f"Bearer {login.json()['token']}"}
+    assert client.get("/api/dashboard/student?username=old.name", headers=old_headers).status_code == 403
+
+    update = client.post("/api/profile/identity", headers=old_headers, json={
+        "username": "old.name",
+        "new_username": "student_new",
+        "full_name": "Học sinh mới",
+        "class_name": "8/2",
+    })
+    assert update.status_code == 200
+    assert update.json()["user"]["id"] == legacy["id"]
+    assert update.json()["user"]["username"] == "student_new"
+    new_headers = {"Authorization": f"Bearer {update.json()['token']}"}
+    dashboard = client.get("/api/dashboard/student?username=student_new", headers=new_headers)
+    assert dashboard.status_code == 200
+    assert [task["title"] for task in dashboard.json()["assignments"]] == ["Bài giữ lại"]

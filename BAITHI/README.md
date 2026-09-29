@@ -193,6 +193,14 @@ Lưu ý: biến môi trường và Persistent Disk được giữ nguyên qua c�
 - Người dùng vào `/account` để cập nhật họ tên, lớp, avatar và đặt lại mật khẩu. Nút tròn góc phải mở hộp thoại báo lỗi / góp ý.
 - Đổi mật khẩu hoặc bị khóa sẽ làm mọi phiên đang đăng nhập mất hiệu lực ngay (token phiên mang kèm `session_version`).
 
+### Bot kiểm duyệt username và lớp
+
+- Username mới phải dài 6–20 ký tự, bắt đầu bằng chữ cái và chỉ dùng chữ không dấu, số hoặc `_`; các tên hệ thống, spam và từ ngữ không phù hợp bị từ chối.
+- Tài khoản học sinh chỉ nhận lớp từ `6/1` đến `9/3`. Nếu tài khoản cũ không đạt chính sách, lần đăng nhập tiếp theo sẽ đưa người dùng tới form cập nhật username/họ tên/lớp; lịch học, nhiệm vụ, liên kết phụ huynh và token push được giữ khi đổi username.
+- Owner mở **Settings → Bot kiểm duyệt tài khoản** để bật/tắt, quét ngay, xem cảnh báo và đánh dấu đã xem.
+- Bot quét ngay khi có đăng ký/đăng nhập hoặc owner yêu cầu. Workflow `.github/workflows/username-policy-scan.yml` quét định kỳ mỗi 15 phút; để bật lịch này, đặt `USERNAME_BOT_CRON_SECRET` trên Render và hai GitHub Actions secrets `USERNAME_BOT_CRON_URL` (URL gốc website) cùng `USERNAME_BOT_CRON_SECRET` (cùng giá trị với Render).
+- Gợi ý username dựa trên họ tên, không thu thập năm sinh. Các cảnh báo chỉ hiển thị trong trang quản trị, không gửi username hay thông tin học sinh qua dịch vụ ngoài.
+
 ### Quyền riêng tư dữ liệu học sinh
 
 Thời khóa biểu và bài tập/nhiệm vụ được lưu theo username của học sinh. Dashboard học sinh chỉ truy vấn bản ghi của chính mình; dashboard phụ huynh tổng hợp dữ liệu riêng của các học sinh đã liên kết. Các thao tác hoàn thành/cập nhật/xóa cũng ràng buộc theo chủ sở hữu.

@@ -143,6 +143,49 @@ def delete_user_account(username: str) -> bool:
     return True
 
 
+def rename_user_account(current_username: str, new_username: str, full_name: str, class_name: str) -> dict[str, Any]:
+    old_name = str(current_username or "").strip()
+    next_name = str(new_username or "").strip()
+    if not old_name or not next_name:
+        raise ValueError("Tên đăng nhập không được để trống.")
+    with USERS_LOCK:
+        users = load_users()
+        current = next(
+            (user for user in users if str(user.get("username", "")).casefold() == old_name.casefold()),
+            None,
+        )
+        if current is None:
+            raise ValueError("Không tìm thấy tài khoản.")
+        if any(
+            str(user.get("username", "")).casefold() == next_name.casefold()
+            and user is not current
+            for user in users
+        ):
+            raise ValueError("Tên đăng nhập đã tồn tại.")
+        for user in users:
+            if str(user.get("parent_username", "")).casefold() == old_name.casefold():
+                user["parent_username"] = next_name
+        current["username"] = next_name
+        current["full_name"] = full_name.strip()
+        if str(current.get("role")) == "student":
+            current["class_name"] = class_name.strip()
+        current["session_version"] = int(current.get("session_version", 0)) + 1
+        save_users(users)
+        updated_user = dict(current)
+
+    with LINK_REQUESTS_LOCK:
+        requests = _load_link_requests()
+        changed = False
+        for item in requests:
+            for key in ("parent_username", "student_username"):
+                if str(item.get(key, "")).casefold() == old_name.casefold():
+                    item[key] = next_name
+                    changed = True
+        if changed:
+            _save_link_requests(requests)
+    return updated_user
+
+
 def get_user_by_username(username: str) -> dict[str, Any] | None:
     user_name = (username or "").strip()
     if not user_name:

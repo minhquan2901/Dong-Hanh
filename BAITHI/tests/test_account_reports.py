@@ -9,11 +9,11 @@ def test_account_and_report_flow(tmp_path, monkeypatch):
     monkeypatch.setenv('STUDYSYNC_SESSION_SECRET', 'test-session-secret-with-at-least-32-chars')
     monkeypatch.setenv('OWNER_USERNAME', 'site-owner')
     monkeypatch.setenv('OWNER_PASSWORD', 'owner-password-very-long')
-    student = register_user('student01', 'old-pass', 'student', 'Tên cũ')
+    student = register_user('student01', 'old-pass', 'student', 'Tên cũ', '8/1')
     register_user('student02', 'other-pass', 'student', 'Người khác')
     client = TestClient(app)
     assert 'id="report-button"' in client.get('/account').text
-    assert 'id="report-inbox"' in client.get('/owner').text
+    assert 'id="report-list"' in client.get('/owner').text
     assert 'href="/account#report"' in client.get('/student').text
     assert 'href="/account#report"' in client.get('/parent').text
     login = client.post('/api/auth/login', json={'username': 'student01', 'password': 'old-pass'})
@@ -22,7 +22,7 @@ def test_account_and_report_flow(tmp_path, monkeypatch):
     assert 'password' not in client.get('/api/profile?username=student01', headers=headers).json()['user']
     assert client.get('/api/profile?username=student02', headers=headers).status_code == 401
     assert client.patch('/api/profile', json={'username': 'student02', 'full_name': 'Giả'}, headers=headers).status_code == 401
-    assert client.patch('/api/profile', json={'username': 'student01', 'full_name': 'Tên mới'}, headers=headers).json()['user']['full_name'] == 'Tên mới'
+    assert client.patch('/api/profile', json={'username': 'student01', 'full_name': 'Tên mới', 'class_name': '8/1'}, headers=headers).json()['user']['full_name'] == 'Tên mới'
     assert client.post('/api/reports', json={'username': 'student02', 'category': 'bug', 'message': 'Lỗi trong trang chủ'}, headers=headers).status_code == 401
     assert client.post('/api/reports', json={'username': 'student01', 'category': 'bug', 'message': 'Lỗi trong trang chủ'}, headers=headers).status_code == 201
     assert client.get('/api/owner/reports', headers=headers).status_code == 401

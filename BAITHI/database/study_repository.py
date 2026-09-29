@@ -410,6 +410,24 @@ class StudyRepository:
                 conn.execute("DELETE FROM schedule WHERE owner_username=?", (owner_username,))
                 conn.execute("DELETE FROM assignments WHERE owner_username=?", (owner_username,))
 
+    def rename_user_data(self, old_username: str, new_username: str) -> None:
+        old_owner = str(old_username or "").strip().lower()
+        new_owner = str(new_username or "").strip().lower()
+        if not old_owner or not new_owner:
+            raise ValueError("Tên tài khoản không được để trống.")
+        if old_owner == new_owner:
+            return
+        with self._lock, self._connect() as conn:
+            for table in ("schedule", "assignments"):
+                conn.execute(
+                    f"UPDATE {table} SET owner_username=%s WHERE owner_username=%s"
+                    if is_postgres() else
+                    f"UPDATE {table} SET owner_username=? WHERE owner_username=?",
+                    (new_owner, old_owner),
+                )
+            if is_postgres():
+                conn.commit()
+
     def add_schedule(
         self,
         subject: str,

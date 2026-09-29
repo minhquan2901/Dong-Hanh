@@ -276,6 +276,22 @@
           <span class="pill success" id="settings-badge">An toàn</span>
         </div>
 
+        <div class="panel" id="username-bot-panel">
+          <div class="panel-title-row">
+            <div>
+              <h3>Bot kiểm duyệt tài khoản</h3>
+              <p class="subtle">Kiểm tra username, họ tên và lớp; tài khoản cần chỉnh sửa sẽ được nhắc khi đăng nhập.</p>
+            </div>
+            <span class="pill" id="username-bot-state">Đang tải...</span>
+          </div>
+          <div class="toolbar compact">
+            <label class="checkbox"><input type="checkbox" id="username-bot-enabled" /> Bật bot</label>
+            <button class="mini-button secondary" id="username-bot-scan" type="button">Quét ngay</button>
+          </div>
+          <p class="subtle" id="username-bot-scan-time"></p>
+          <div class="report-list" id="username-bot-violations"></div>
+        </div>
+
         <div class="settings-grid">
           <div class="panel">
             <div class="panel-title-row">
@@ -337,11 +353,12 @@
     }
 
     async function loadOwnerDashboard() {
-      const [overview, usersResult, reportsResult, healthData] = await Promise.all([
+      const [overview, usersResult, reportsResult, healthData, usernameBot] = await Promise.all([
         ownerRequest('/api/owner/overview'),
         ownerRequest('/api/owner/users'),
         ownerRequest('/api/owner/reports'),
         fetch('/health/data').then((response) => response.ok ? response.json() : {}).catch(() => ({})),
+        ownerRequest('/api/owner/username-bot'),
       ]);
 
       managedUsers = usersResult.users || [];
@@ -351,6 +368,7 @@
       renderUsers();
       renderReports();
       renderSettings(healthData);
+      renderUsernameBot(usernameBot);
 
       loginPanel.hidden = true;
       appPanel.hidden = false;
@@ -429,7 +447,7 @@
               <td>${user.role === 'student' ? 'Học sinh' : 'Phụ huynh'}</td>
               <td>${escapeHtml([user.student_id, user.class_name].filter(Boolean).join(' · ') || '—')}</td>
               <td>${user.successful_actions || 0}</td>
-              <td><span class="status ${user.is_active ? 'on' : 'off'}">${user.is_active ? 'Đang hoạt động' : 'Đã khóa'}</span></td>
+              <td><span class="status ${user.is_active ? 'on' : 'off'}">${user.is_active ? 'Đang hoạt động' : 'Đã khóa'}</span>${user.policy_violations?.length ? '<br><span class="status off">Cần cập nhật thông tin</span>' : ''}</td>
               <td>
                 <div class="action-stack">
                   <button class="mini-button ${user.is_active ? 'danger' : 'secondary'}" data-user-action="toggle" data-user-id="${user.id}">${user.is_active ? 'Khóa' : 'Mở khóa'}</button>
@@ -513,6 +531,39 @@
         <div class="info-row"><span>Backup</span><strong>${healthData.files ? 'Có sẵn' : 'Chưa kiểm tra'}</strong></div>
         <div class="info-row"><span>Push notification</span><strong>Đang chờ cấu hình môi trường</strong></div>
       `;
+    }
+
+    function renderUsernameBot(status) {
+      const enabled = document.getElementById('username-bot-enabled');
+      enabled.checked = Boolean(status.enabled);
+      document.getElementById('username-bot-state').textContent = status.enabled
+        ? `Đang bật · ${status.violation_count || 0} cảnh báo`
+        : 'Đã tắt';
+      document.getElementById('username-bot-scan-time').textContent = status.last_scan_at
+        ? `Quét gần nhất: ${new Date(status.last_scan_at).toLocaleString('vi-VN')}`
+        : 'Chưa quét lần nào.';
+      const pending = (status.violations || []).filter((item) => item.status === 'pending');
+      const target = document.getElementById('username-bot-violations');
+      target.innerHTML = pending.length ? pending.map((item) => `
+        <article class="report-item unread">
+          <div class="report-head">
+            <div><strong>@${escapeHtml(item.username)}</strong><span>${escapeHtml(item.role === 'registration' ? 'Đăng ký bị từ chối' : item.role)}</span></div>
+            <span class="report-time">${escapeHtml(item.last_seen_at || item.first_seen_at || '')}</span>
+          </div>
+          <p>${(item.reasons || []).map(escapeHtml).join('<br>')}</p>
+          <div class="report-actions"><button class="mini-button secondary" data-bot-review="${escapeHtml(item.username)}" type="button">Đánh dấu đã xem</button></div>
+        </article>
+      `).join('') : '<div class="empty-state">Không có cảnh báo username/lớp đang chờ.</div>';
+      target.querySelectorAll('[data-bot-review]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          try {
+            const next = await ownerRequest(`/api/owner/username-bot/violations/${encodeURIComponent(button.dataset.botReview)}/review`, { method: 'POST' });
+            renderUsernameBot(next);
+          } catch (error) {
+            alert(error.message);
+          }
+        });
+      });
     }
 
     async function toggleReportRead(report, nextValue) {
@@ -627,6 +678,28 @@
 
     document.getElementById('user-search').addEventListener('input', renderUsers);
     document.getElementById('user-role-filter').addEventListener('change', renderUsers);
+    document.getElementById('username-bot-enabled').addEventListener('change', async (event) => {
+      try {
+        const status = await ownerRequest('/api/owner/username-bot', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: event.target.checked }),
+        });
+        renderUsernameBot(status);
+      } catch (error) {
+        event.target.checked = !event.target.checked;
+        alert(error.message);
+      }
+    });
+    document.getElementById('username-bot-scan').addEventListener('click', async () => {
+      try {
+        const status = await ownerRequest('/api/owner/username-bot/scan', { method: 'POST' });
+        renderUsernameBot(status);
+        await loadOwnerDashboard();
+      } catch (error) {
+        alert(error.message);
+      }
+    });
 
     if (ownerToken && !sessionStorage.getItem(ownerUsernameKey)) {
       sessionStorage.removeItem(tokenKey);
@@ -640,6 +713,13 @@
         document.getElementById('login-error').textContent = error.message;
       });
     }
+
+    window.setInterval(() => {
+      if (!ownerToken || appPanel.hidden) return;
+      ownerRequest('/api/owner/username-bot')
+        .then(renderUsernameBot)
+        .catch((error) => console.error('Không làm mới được trạng thái bot username:', error));
+    }, 30000);
   </script>
 </body>
 </html>

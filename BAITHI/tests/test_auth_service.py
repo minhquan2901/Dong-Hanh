@@ -116,7 +116,7 @@ def test_parent_links_by_student_id_and_updates_profile(tmp_path, monkeypatch):
 def test_secondary_pin_is_hashed_and_verified(tmp_path, monkeypatch):
     user_file = tmp_path / "users.json"
     monkeypatch.setattr("auth_service.USERS_FILE", user_file)
-    register_user("student01", "Abc12345", "student", "Học sinh A")
+    register_user("student01", "Abc12345", "student", "Học sinh A", "8/1")
 
     assert set_secondary_pin("student01", "Abc12345", "4826")
     persisted_user = json.loads(user_file.read_text(encoding="utf-8"))["users"][0]
@@ -128,7 +128,7 @@ def test_secondary_pin_is_hashed_and_verified(tmp_path, monkeypatch):
 
 def test_pin_login_and_schedule_without_pin(tmp_path, monkeypatch):
     monkeypatch.setattr("auth_service.USERS_FILE", tmp_path / "users.json")
-    register_user("student01", "Abc12345", "student", "Học sinh A")
+    register_user("student01", "Abc12345", "student", "Học sinh A", "8/1")
     client = TestClient(app)
     login = client.post("/api/auth/login", json={"username": "student01", "password": "Abc12345"})
     assert login.status_code == 200

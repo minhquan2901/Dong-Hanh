@@ -1,0 +1,21 @@
+name: StudySync username policy scan
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  scan-accounts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Scan registered accounts
+        env:
+          USERNAME_BOT_CRON_URL: ${{ secrets.USERNAME_BOT_CRON_URL }}
+          USERNAME_BOT_CRON_SECRET: ${{ secrets.USERNAME_BOT_CRON_SECRET }}
+        run: |
+          test -n "$USERNAME_BOT_CRON_URL"
+          test -n "$USERNAME_BOT_CRON_SECRET"
+          curl --fail-with-body --silent --show-error \
+            -X POST "${USERNAME_BOT_CRON_URL%/}/api/internal/username-bot-scan" \
+            -H "X-Cron-Secret: ${USERNAME_BOT_CRON_SECRET}"

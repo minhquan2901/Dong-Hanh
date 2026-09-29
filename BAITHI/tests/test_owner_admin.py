@@ -111,7 +111,7 @@ def test_owner_can_delete_user_and_owned_data(tmp_path, monkeypatch):
 
 def test_only_valid_user_session_counts_feature_use(tmp_path, monkeypatch):
     user_file, usage_file = configure_owner(monkeypatch, tmp_path)
-    register_user("student01", "StudentPass1", "student", "Học sinh 1", "8A1")
+    register_user("student01", "StudentPass1", "student", "Học sinh 1", "8/1")
     client = TestClient(app)
     payload = {
         "session": "morning",

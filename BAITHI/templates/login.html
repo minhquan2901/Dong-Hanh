@@ -44,6 +44,7 @@
       .switch button.active { background: #fff; color: var(--primary); box-shadow: 0 6px 14px rgba(31,111,235,.12); }
       form { margin-top: 30px; display: grid; gap: 18px; }
       .field { display: grid; gap: 8px; }
+      .field-help { color: var(--muted); font-size: .8rem; }
       .field label { font-weight: 600; font-size: .92rem; }
       .field input, .field select { width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 13px 14px; font-size: 1rem; outline: none; }
       .field input:focus, .field select:focus { border-color: rgba(31,111,235,.55); box-shadow: 0 0 0 4px rgba(31,111,235,.08); }
@@ -144,7 +145,8 @@
 
             <div id="class-row" class="field" style="display: none;">
               <label for="class_name">Lớp</label>
-              <input id="class_name" name="class_name" type="text" placeholder="Ví dụ: 10A1" />
+              <input id="class_name" name="class_name" type="text" placeholder="Ví dụ: 6/1, 7/2, 8/3" maxlength="10" />
+              <small class="field-help">Chỉ nhận lớp từ khối 6 đến 9, mỗi khối tối đa 3 lớp.</small>
             </div>
 
             <div class="actions">
@@ -186,11 +188,12 @@
         const isStudent = document.getElementById('role').value === 'student';
         extraFields.style.display = isRegister ? 'grid' : 'none';
         classRow.style.display = isRegister && isStudent ? 'block' : 'none';
+        document.getElementById('class_name').required = isRegister && isStudent;
         modeButtons.forEach((button) => {
           const active = button.dataset.mode === mode;
           button.classList.toggle('active', active);
         });
-        fullNameField.style.display = isRegister && isStudent ? 'grid' : 'none';
+        fullNameField.style.display = isRegister ? 'grid' : 'none';
         fullNameInput.required = isRegister && isStudent;
         messageBox.className = 'message';
       }
@@ -201,8 +204,9 @@
 
       document.getElementById('role').addEventListener('change', () => {
         const isStudent = document.getElementById('role').value === 'student';
-        fullNameField.style.display = isStudent ? 'grid' : 'none';
+        fullNameField.style.display = currentMode === 'register' ? 'grid' : 'none';
         classRow.style.display = isStudent && currentMode === 'register' ? 'block' : 'none';
+        document.getElementById('class_name').required = isStudent && currentMode === 'register';
         fullNameInput.required = isStudent;
         if (!isStudent) {
           fullNameInput.value = '';
@@ -245,7 +249,9 @@
 
           const result = await response.json();
           if (!response.ok) {
-            showMessage(result.detail || result.message || 'Có lỗi xảy ra.', 'error');
+            const suggestions = response.headers.get('X-Username-Suggestions');
+            const suggestionText = suggestions ? ` Gợi ý username: ${suggestions.split(',').join(', ')}.` : '';
+            showMessage(`${result.detail || result.message || 'Có lỗi xảy ra.'}${suggestionText}`, 'error');
             return;
           }
 
@@ -261,14 +267,18 @@
             }
             localStorage.setItem('study_sync_user', JSON.stringify(result.user));
             localStorage.setItem('study_sync_session_token', result.token);
+            localStorage.setItem('study_sync_identity_update_required', result.identity_update_required ? 'true' : 'false');
+            localStorage.setItem('study_sync_identity_reasons', JSON.stringify(result.identity_reasons || []));
+            localStorage.setItem('study_sync_username_suggestions', JSON.stringify(result.username_suggestions || []));
             showMessage('Đăng nhập thành công. Đang chuyển hướng...', 'success');
             setTimeout(() => {
-              window.location.href = result.user.role === 'parent' ? '/parent' : '/student';
+              window.location.href = result.identity_update_required
+                ? '/account#identity-review'
+                : (result.user.role === 'parent' ? '/parent' : '/student');
             }, 600);
             return;
           }
 
-          localStorage.removeItem('study_sync_session_token');
           showMessage(result.message || 'Tạo tài khoản thành công.', 'success');
           setMode('login');
         } catch (error) {
