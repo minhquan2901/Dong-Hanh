@@ -1089,6 +1089,40 @@
         importSchedulePreview.appendChild(table);
       }
 
+      async function prepareTimetableImage(file) {
+        let source;
+        let sourceWidth;
+        let sourceHeight;
+        let releaseSource = () => {};
+        if ('createImageBitmap' in window) {
+          source = await createImageBitmap(file);
+          sourceWidth = source.width;
+          sourceHeight = source.height;
+          releaseSource = () => source.close();
+        } else {
+          const objectUrl = URL.createObjectURL(file);
+          source = await new Promise((resolve, reject) => {
+            const image = new Image();
+            image.onload = () => resolve(image);
+            image.onerror = () => reject(new Error('Không thể đọc ảnh trên thiết bị.'));
+            image.src = objectUrl;
+          });
+          URL.revokeObjectURL(objectUrl);
+          sourceWidth = source.naturalWidth;
+          sourceHeight = source.naturalHeight;
+        }
+        const maxSide = 1800;
+        const scale = Math.min(1, maxSide / Math.max(sourceWidth, sourceHeight));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+        canvas.height = Math.max(1, Math.round(sourceHeight * scale));
+        canvas.getContext('2d').drawImage(source, 0, 0, canvas.width, canvas.height);
+        releaseSource();
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', .82));
+        if (!blob) throw new Error('Không thể nén ảnh trên thiết bị.');
+        return new File([blob], 'timetable.jpg', { type: 'image/jpeg' });
+      }
+
       importScheduleFile.addEventListener('change', async () => {
         const file = importScheduleFile.files[0];
         if (!file) return;
@@ -1096,9 +1130,9 @@
         importScheduleStatus.textContent = 'Đang đọc ảnh, vui lòng đợi...';
         importScheduleSave.hidden = true;
         importSchedulePreview.innerHTML = '';
-        const form = new FormData();
-        form.append('file', file);
         try {
+          const form = new FormData();
+          form.append('file', await prepareTimetableImage(file));
           const response = await fetch('/api/schedule/import-image', {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${sessionToken}`, 'X-Username': user.username },

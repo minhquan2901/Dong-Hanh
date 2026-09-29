@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import difflib
 import re
+import threading
 import unicodedata
 from collections import defaultdict
 from typing import Any
@@ -41,8 +42,9 @@ SESSION_MARKERS = {
 
 _DAY_KEY_SET = {name for keys in DAY_KEYS.values() for name in keys}
 
-# Ảnh chụp từ điện thoại thường 2-5 MB, đặt trần 12 MB cho sẵn.
-MAX_TIMETABLE_IMAGE_BYTES = 12 * 1024 * 1024
+# OCR khong can giu nguyen anh 4K: thu nho truoc de giam RAM va thoi gian xu ly.
+OCR_MAX_DIMENSION = 1800
+MAX_TIMETABLE_IMAGE_BYTES = 8 * 1024 * 1024
 
 # Thời khóa biểu lưu được tiết 1 đến MAX_PERIOD, khớp với giới hạn ở
 # database.study_repository. Trước đây để 5 nên bỏ mất tiết 6, 7 có thật.
@@ -75,6 +77,7 @@ _SPLIT_ON_DASH = re.compile(r"\s*[-\u2013\u2014]\s*")
 _CLEAN = re.compile(r"[\u2022\u00b7|]+")
 
 _ENGINE: Any = None
+_OCR_LOCK = threading.Lock()
 
 
 class TimetableImageError(ValueError):
@@ -128,14 +131,20 @@ def _read_lines(image_bytes: bytes) -> tuple[list[dict[str, Any]], list[float]]:
     if image is None:
         raise TimetableImageError("Không đọc được tệp ảnh. Hãy thử lại với ảnh PNG hoặc JPG.")
 
-    # Phong lon anh chup tu dien thoai, chu nho trong o se de nhan hon.
+    # Chuan hoa moi anh ve kich thuoc vua du cho OCR, tranh anh 4K lam day RAM.
     height, width = image.shape[:2]
-    if max(height, width) < 1800:
-        image = cv2.resize(image, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+    longest_side = max(height, width)
+    if longest_side != OCR_MAX_DIMENSION:
+        scale = OCR_MAX_DIMENSION / longest_side
+        interpolation = cv2.INTER_AREA if scale < 1 else cv2.INTER_CUBIC
+        image = cv2.resize(image, None, fx=scale, fy=scale, interpolation=interpolation)
 
     grid_lines = _detect_grid_lines(image)
 
-    result, _ = _engine()(image)
+    # RapidOCR dung model native; khong cho nhieu anh chay dong thoi tren
+    # Render free vi moi request co the tao them buffer anh lon trong RAM.
+    with _OCR_LOCK:
+        result, _ = _engine()(image)
     if not result:
         raise TimetableImageError("Không tìm thấy chữ trong ảnh. Hãy chụp rõ, không mờ và không bị che.")
 
