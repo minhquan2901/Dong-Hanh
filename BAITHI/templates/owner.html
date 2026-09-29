@@ -544,23 +544,81 @@
         : 'Chưa quét lần nào.';
       const pending = (status.violations || []).filter((item) => item.status === 'pending');
       const target = document.getElementById('username-bot-violations');
-      target.innerHTML = pending.length ? pending.map((item) => `
+      target.innerHTML = pending.length ? pending.map((item) => {
+        const isRegistration = item.role === 'registration';
+        const rawName = String(item.username || '');
+        const fullName = isRegistration ? '' : rawName;
+        const suggestions = (item.suggestions || []).map((value) => `
+          <button class="mini-button secondary" data-bot-use="${escapeHtml(value)}" type="button">${escapeHtml(value)}</button>
+        `).join(' ');
+        return `
         <article class="report-item unread">
           <div class="report-head">
-            <div><strong>@${escapeHtml(item.username)}</strong><span>${escapeHtml(item.role === 'registration' ? 'Đăng ký bị từ chối' : item.role)}</span></div>
+            <div><strong>@${escapeHtml(rawName)}</strong><span>${isRegistration ? 'Đăng ký bị từ chối' : escapeHtml(item.role)}</span></div>
             <span class="report-time">${escapeHtml(item.last_seen_at || item.first_seen_at || '')}</span>
           </div>
           <p>${(item.reasons || []).map(escapeHtml).join('<br>')}</p>
-          <div class="report-actions"><button class="mini-button secondary" data-bot-review="${escapeHtml(item.username)}" type="button">Đánh dấu đã xem</button></div>
+          ${suggestions ? `<p style="margin-top:8px"><strong style="font-size:.8rem">Gợi ý tên hợp lệ:</strong><br><span style="display:inline-flex;gap:6px;flex-wrap:wrap;margin-top:4px">${suggestions}</span></p>` : ''}
+          <div class="report-actions">
+            ${isRegistration ? '' : `<button class="mini-button" data-bot-rename="${escapeHtml(rawName)}" type="button">Đổi tên hộ</button>`}
+            <button class="mini-button secondary" data-bot-review="${escapeHtml(rawName)}" type="button">Đánh dấu đã xem</button>
+          </div>
         </article>
-      `).join('') : '<div class="empty-state">Không có cảnh báo username/lớp đang chờ.</div>';
+      `;
+      }).join('') : '<div class="empty-state">Không có cảnh báo username/lớp đang chờ.</div>';
+      target.querySelectorAll('[data-bot-rename]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          const current = button.dataset.botRename;
+          let response;
+          try {
+            response = await ownerRequest(`/api/owner/username-bot/suggestions/${encodeURIComponent(current)}`);
+          } catch (error) {
+            await window.studySyncConfirm.alert(error.message, 'Không lấy được gợi ý');
+            return;
+          }
+          const options = (response.suggestions || []).join(', ') || current;
+          const newName = await window.studySyncConfirm.prompt(
+            `Nhập tên đăng nhập mới cho @${current}.\nGợi ý: ${options}`,
+            'Đổi tên đăng nhập',
+            { input: 'Tên đăng nhập mới', initialValue: current },
+          );
+          if (newName === false) return;
+          const clean = String(newName).trim();
+          if (!clean || clean === current) return;
+          if (!(await window.studySyncConfirm.confirm(
+            `Đổi tên @${current} thành @${clean}?\nLịch học và bài tập được giữ nguyên, nhưng tài khoản phải đăng nhập lại bằng tên mới.`,
+            'Xác nhận đổi tên',
+            { okText: 'Đổi tên' },
+          ))) return;
+          try {
+            const result = await ownerRequest(`/api/owner/users/by-username/${encodeURIComponent(current)}/username`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ new_username: clean }),
+            });
+            await window.studySyncConfirm.alert(
+              `Đã đổi @${current} thành @${result.user.username}.`,
+              'Thành công',
+            );
+            await loadOwnerDashboard();
+            await refreshUsernameBot();
+          } catch (error) {
+            await window.studySyncConfirm.alert(error.message, 'Không đổi được tên');
+          }
+        });
+      });
+      target.querySelectorAll('[data-bot-use]').forEach((button) => {
+        button.addEventListener('click', () => {
+          navigator.clipboard?.writeText(button.dataset.botUse);
+        });
+      });
       target.querySelectorAll('[data-bot-review]').forEach((button) => {
         button.addEventListener('click', async () => {
           try {
             const next = await ownerRequest(`/api/owner/username-bot/violations/${encodeURIComponent(button.dataset.botReview)}/review`, { method: 'POST' });
             renderUsernameBot(next);
           } catch (error) {
-            alert(error.message);
+            await window.studySyncConfirm.alert(error.message, 'Không cập nhật được');
           }
         });
       });
@@ -696,8 +754,12 @@
         const status = await ownerRequest('/api/owner/username-bot/scan', { method: 'POST' });
         renderUsernameBot(status);
         await loadOwnerDashboard();
+        await window.studySyncConfirm.alert(
+          `Đã quét xong. Còn ${status.violation_count || 0} tài khoản cần chỉnh.`,
+          'Kiểm duyệt tài khoản',
+        );
       } catch (error) {
-        alert(error.message);
+        await window.studySyncConfirm.alert(error.message, 'Không quét được');
       }
     });
 

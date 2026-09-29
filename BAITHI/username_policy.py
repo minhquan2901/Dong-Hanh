@@ -152,6 +152,20 @@ def generate_suggested_username(
     return suggestions
 
 
+def _suggest_class(user: dict[str, Any]) -> str:
+    """Goi y lop 6-9 khi lop hien tai khong hop le (vd "lop 5" -> "6/1")."""
+    if str(user.get("role", "student")) != "student":
+        return ""
+    current = str(user.get("class_name", "")).strip()
+    if validate_class_name(current)[0]:
+        return current
+    numbers = re.findall(r"\d+", current)
+    grade = numbers[0] if numbers else ""
+    if grade not in {"6", "7", "8", "9"}:
+        grade = "6"
+    return f"{grade}/1"
+
+
 def identity_violations(user: dict[str, Any]) -> list[str]:
     reasons: list[str] = []
     valid_username, username_message = validate_username(str(user.get("username", "")))
@@ -260,6 +274,7 @@ def scan_registered_users(users: list[dict[str, Any]]) -> dict[str, Any]:
         if item.get("role") != "registration"
     }
     seen_keys: set[str] = set()
+    all_usernames = [str(item.get("username", "")) for item in users]
     for user in users:
         username = str(user.get("username", "")).strip()
         key = username.casefold()
@@ -275,6 +290,11 @@ def scan_registered_users(users: list[dict[str, Any]]) -> dict[str, Any]:
             "username": username,
             "role": str(user.get("role", "student")),
             "reasons": reasons,
+            # Kem goi y de quan tri co the doi nhanh trong trang admin.
+            "suggestions": generate_suggested_username(
+                str(user.get("full_name", "")), existing_usernames=all_usernames
+            ),
+            "suggested_class": _suggest_class(user),
             "status": "pending",
             "first_seen_at": old.get("first_seen_at", now),
             "last_seen_at": now,

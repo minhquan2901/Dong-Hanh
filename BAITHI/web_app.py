@@ -198,6 +198,12 @@ class OwnerUserEditPayload(BaseModel):
     class_name: str | None = None
     avatar: str | None = None
 
+
+class OwnerUserRenamePayload(BaseModel):
+    new_username: str
+    full_name: str | None = None
+    class_name: str | None = None
+
 class ReportPayload(BaseModel):
     username: str
     category: str
@@ -1169,6 +1175,81 @@ def owner_edit_user(user_id: str, payload: OwnerUserEditPayload, authorization: 
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"user": _public_user(updated)}
+
+@app.patch("/api/owner/users/{user_id}/username")
+def owner_rename_user(
+    user_id: str, payload: OwnerUserRenamePayload, authorization: str | None = Header(default=None)
+):
+    """Cho phep quan tri doi ten dang nhap cho tai khoan bi canh bao.
+
+    Giu nguyen id, lich hoc va bai tap; chi doi username va ho so.
+    """
+    _require_owner(authorization)
+    user = managed_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
+
+    existing = [str(item.get("username", "")) for item in load_users()]
+    target_username = str(payload.new_username or "").strip()
+    if target_username.casefold() == str(user.get("username", "")).casefold():
+        raise HTTPException(status_code=400, detail="Tên đăng nhập mới phải khác tên cũ.")
+
+    full_name = str(user.get("full_name", "")) if payload.full_name is None else payload.full_name
+    class_name = str(user.get("class_name", "")) if payload.class_name is None else payload.class_name
+
+    if get_username_bot_status()["enabled"]:
+        username_valid, username_message = validate_username(target_username)
+        if not username_valid:
+            raise HTTPException(
+                status_code=400,
+                detail=username_message,
+                headers={"X-Username-Suggestions": ",".join(generate_suggested_username(
+                    full_name, existing_usernames=existing,
+                ))},
+            )
+        if user.get("role") == "student":
+            name_valid, name_message = validate_display_name(full_name)
+            if not name_valid:
+                raise HTTPException(status_code=400, detail=name_message)
+            class_valid, class_result = validate_class_name(class_name)
+            if not class_valid:
+                raise HTTPException(status_code=400, detail=class_result)
+            class_name = class_result
+
+    try:
+        updated = rename_managed_user(
+            str(user.get("username", "")), target_username, full_name, class_name
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"user": _public_user(updated)}
+
+
+@app.patch("/api/owner/users/by-username/{username:path}/username")
+def owner_rename_user_by_username(
+    username: str, payload: OwnerUserRenamePayload, authorization: str | None = Header(default=None)
+):
+    """Đổi username theo tên hiện tại, tiện cho nút "Đổi tên hộ" trong trang admin."""
+    _require_owner(authorization)
+    user = get_user_by_username(username)
+    if not user:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
+    return owner_rename_user(str(user.get("id", "")), payload, authorization)
+
+
+@app.post("/api/owner/username-bot/suggestions/{username:path}")
+def owner_username_suggestions(username: str, authorization: str | None = Header(default=None)):
+    _require_owner(authorization)
+    user = get_user_by_username(username)
+    if not user:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
+    return {
+        "suggestions": generate_suggested_username(
+            str(user.get("full_name", "")),
+            existing_usernames=[str(item.get("username", "")) for item in load_users()],
+        ),
+    }
+
 
 @app.post("/api/reports", status_code=201)
 def submit_report(payload: ReportPayload, authorization: str | None = Header(default=None)):
