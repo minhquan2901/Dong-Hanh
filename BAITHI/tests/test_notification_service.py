@@ -67,7 +67,11 @@ def test_web_push_routes_serve_worker_and_register_student_token(tmp_path, monke
     apple_icon = client.get("/static/studysync-apple-touch-icon-v2.png")
     worker = client.get("/firebase-messaging-sw.js")
     module = client.get("/firebase-notifications.js")
-    registered = client.post("/api/push/register", json={
+    monkeypatch.setenv("STUDYSYNC_SESSION_SECRET", "test-session-secret-with-at-least-32-chars")
+    monkeypatch.setattr("web_app.get_username_bot_status", lambda: {"enabled": False})
+    from owner_auth import create_user_token
+    token = create_user_token("student-a", "student")
+    registered = client.post("/api/push/register", headers={"Authorization": f"Bearer {token}"}, json={
         "username": "student-a", "token": "desktop-token-1",
     })
 
@@ -123,12 +127,13 @@ def test_create_assignment_persists_vietnam_due_time(tmp_path, monkeypatch):
 def test_push_due_endpoint_requires_cron_secret(monkeypatch):
     monkeypatch.setenv("PUSH_CRON_SECRET", "test-secret")
     monkeypatch.setattr("web_app.send_due_task_reminders", lambda: [])
+    monkeypatch.setattr("web_app.send_schedule_reminders", lambda: [])
     client = TestClient(app)
 
     assert client.post("/api/internal/push-due").status_code == 403
     response = client.post("/api/internal/push-due", headers={"X-Cron-Secret": "test-secret"})
     assert response.status_code == 200
-    assert response.json() == {"reminders": []}
+    assert response.json() == {"reminders": [], "schedule": []}
 
 
 def test_due_task_pushes_cover_four_time_offsets_once_each(tmp_path, monkeypatch):
@@ -180,3 +185,45 @@ def test_legacy_date_only_deadline_uses_end_of_day():
 
     assert due_at is not None
     assert due_at.isoformat() == "2026-09-30T23:59:00+07:00"
+
+
+def test_push_settings_are_private_and_persist(tmp_path, monkeypatch):
+    monkeypatch.setattr("auth_service.USERS_FILE", tmp_path / "users.json")
+    for key in ("WEB_PUSH_SUBSCRIPTIONS_FILE", "MOBILE_PUSH_SUBSCRIPTIONS_FILE",
+                "REMINDER_PREFERENCES_FILE", "PUSH_STATUS_FILE"):
+        monkeypatch.setattr("backend.notification_service." + key, tmp_path / (key.lower() + ".json"))
+    monkeypatch.setenv("STUDYSYNC_SESSION_SECRET", "test-session-secret-with-at-least-32-chars")
+    monkeypatch.setattr("web_app.get_username_bot_status", lambda: {"enabled": False})
+    register_user("student-a", "Pass1234", "student", "Học sinh A")
+    register_user("student-b", "Pass1234", "student", "Học sinh B")
+    from owner_auth import create_user_token
+    token = create_user_token("student-a", "student")
+    headers = {"Authorization": f"Bearer {token}"}
+    client = TestClient(app)
+
+    assert client.post("/api/push/register", json={"username": "student-b", "token": "hijacked"}).status_code == 401
+    assert client.post("/api/push/register", headers=headers, json={"username": "student-b", "token": "hijacked"}).status_code == 401
+    assert client.post("/api/push/unregister", headers=headers, json={"username": "student-b"}).status_code == 401
+    assert client.post("/api/push/preferences", headers=headers, json={"username": "student-b", "deadline": False}).status_code == 401
+    assert client.post("/api/push/register", headers=headers, json={"username": "student-a", "token": "web-token"}).status_code == 200
+    assert client.post("/api/push/register-mobile", headers=headers, json={"username": "student-a", "token": "mobile-token"}).status_code == 200
+    assert client.post("/api/push/preferences", headers=headers, json={"username": "student-a", "deadline": False}).json() == {
+        "reminders": {"deadline": False, "schedule": True}
+    }
+    assert client.get("/api/push/status", params={"username": "student-a"}).status_code == 401
+    status = client.get("/api/push/status", params={"username": "student-a"}, headers=headers).json()
+    assert status["web_devices"] == status["mobile_devices"] == 1
+    assert status["expected"] is True
+    assert status["reminders"] == {"deadline": False, "schedule": True}
+
+
+def test_expired_fcm_token_is_removed_from_both_subscriptions(tmp_path, monkeypatch):
+    from backend.notification_service import remove_token_everywhere, get_user_mobile_tokens
+    monkeypatch.setattr("backend.notification_service.WEB_PUSH_SUBSCRIPTIONS_FILE", tmp_path / "web.json")
+    monkeypatch.setattr("backend.notification_service.MOBILE_PUSH_SUBSCRIPTIONS_FILE", tmp_path / "mobile.json")
+    register_user_web_token("student-a", "expired-token")
+    from backend.notification_service import register_user_mobile_token
+    register_user_mobile_token("student-a", "expired-token")
+    remove_token_everywhere("expired-token")
+    assert get_user_web_tokens("student-a") == []
+    assert get_user_mobile_tokens("student-a") == []

@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import os
 import secrets
+import threading
+import time
+import traceback
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
@@ -28,10 +31,22 @@ from auth_service import (
 )
 from backend.notification_service import (
     FIREBASE_VAPID_KEY,
+    REMINDER_TICK_ENABLED,
+    REMINDER_TICK_SECONDS,
     firebase_push_ready,
+    get_push_status,
+    get_reminder_preferences,
+    get_user_mobile_tokens,
+    get_user_web_tokens,
+    register_user_mobile_token,
     register_user_web_token,
+    remove_user_mobile_tokens,
+    remove_user_web_tokens,
+    run_reminder_tick,
     send_due_task_reminders,
+    send_schedule_reminders,
     send_web_push_to_user,
+    set_reminder_preferences,
 )
 from bus.study_bus import StudyBus
 from owner_auth import (
@@ -68,6 +83,9 @@ app = FastAPI(title="StudySync Unified App")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(ROOT / "templates"))
 
+_REMINDER_THREAD: threading.Thread | None = None
+_REMINDER_STOP = threading.Event()
+
 
 @app.on_event("startup")
 def warm_up_database() -> None:
@@ -76,12 +94,56 @@ def warm_up_database() -> None:
     Neon scale-to-zero nen lan ket noi dau tien rat cham (2-5 giay). Nap san
     luc khoi dong giup nguoi dung khong phai doi mot lan dang nhap.
     """
-    if not is_postgres():
+    if is_postgres():
+        try:
+            load_document("users", {"users": []}, "tai khoan")
+        except Exception:  # pragma: no cover - app van khoi dong duoc neu DB loi
+            pass
+    _start_reminder_scheduler()
+
+
+@app.on_event("shutdown")
+def stop_reminder_scheduler() -> None:
+    _stop_reminder_scheduler()
+
+
+def _reminder_loop() -> None:
+    """Vòng lặp gửi thông báo chạy nền trong tiến trình server.
+
+    Trước đây toàn bộ nhắc hạn phụ thuộc cron ngoài gọi `/api/internal/push-due`.
+    Cửa sổ hẹp nhất chỉ 4 phút nên cron chạy mỗi 5 phút sẽ dễ trượt mốc.
+    """
+    while not _REMINDER_STOP.is_set():
+        try:
+            run_reminder_tick()
+            send_schedule_reminders()
+        except Exception:  # pragma: no cover - vòng lặp không được chết vì 1 lần lỗi
+            traceback.print_exc()
+        # wait thay cho sleep để lệnh tắt được phản hồi ngay.
+        _REMINDER_STOP.wait(REMINDER_TICK_SECONDS)
+
+
+def _start_reminder_scheduler() -> None:
+    global _REMINDER_THREAD
+    if not REMINDER_TICK_ENABLED or _REMINDER_THREAD is not None:
         return
-    try:
-        load_document("users", {"users": []}, "tai khoan")
-    except Exception:  # pragma: no cover - app van khoi dong duoc neu DB loi
-        pass
+    _REMINDER_STOP.clear()
+    _REMINDER_THREAD = threading.Thread(
+        target=_reminder_loop,
+        name="studysync-reminder-scheduler",
+        daemon=True,
+    )
+    _REMINDER_THREAD.start()
+
+
+def _stop_reminder_scheduler() -> None:
+    global _REMINDER_STOP
+    _REMINDER_STOP.set()
+    thread = _REMINDER_THREAD
+    if thread is None:
+        return
+    thread.join(timeout=2)
+    _REMINDER_THREAD = None
 
 
 class AuthPayload(BaseModel):
@@ -157,6 +219,21 @@ class AssignmentCompletionPayload(BaseModel):
 class WebPushRegistrationPayload(BaseModel):
     username: str
     token: str
+
+
+class WebPushUnregisterPayload(BaseModel):
+    username: str
+
+
+class MobilePushRegistrationPayload(BaseModel):
+    username: str
+    token: str
+
+
+class ReminderPreferencePayload(BaseModel):
+    username: str
+    deadline: bool | None = None
+    schedule: bool | None = None
 
 
 class SecondaryPinSetupPayload(BaseModel):
@@ -422,7 +499,8 @@ def web_push_config() -> dict[str, bool | str]:
 
 
 @app.post("/api/push/register")
-def register_web_push(payload: WebPushRegistrationPayload):
+def register_web_push(payload: WebPushRegistrationPayload, authorization: str | None = Header(default=None)):
+    _require_user_session(authorization, payload.username, {"student"})
     user = get_user_by_username(payload.username)
     if not user or user.get("role") != "student":
         raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản học sinh.")
@@ -439,6 +517,64 @@ def register_web_push(payload: WebPushRegistrationPayload):
     }
 
 
+@app.post("/api/push/unregister")
+def unregister_web_push(payload: WebPushUnregisterPayload, authorization: str | None = Header(default=None)):
+    _require_user_session(authorization, payload.username, {"student"})
+    remove_user_web_tokens(payload.username)
+    remove_user_mobile_tokens(payload.username)
+    return {"message": "Đã tắt thông báo trên tất cả thiết bị.", "username": payload.username}
+
+
+@app.post("/api/push/register-mobile")
+def register_mobile_push(payload: MobilePushRegistrationPayload, authorization: str | None = Header(default=None)):
+    _require_user_session(authorization, payload.username, {"student"})
+    """App điện thoại (Android/iOS) đăng ký FCM token theo đúng tài khoản."""
+    user = get_user_by_username(payload.username)
+    if not user or user.get("role") != "student":
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản học sinh.")
+    if not payload.token.strip():
+        raise HTTPException(status_code=400, detail="Token thông báo không hợp lệ.")
+    try:
+        count = register_user_mobile_token(payload.username, payload.token)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"message": "Đã bật thông báo trên điện thoại.", "registered_devices": count}
+
+
+@app.get("/api/push/status")
+def push_status(
+    username: str = Query(...),
+    authorization: str | None = Header(default=None),
+):
+    _require_user_session(authorization, username)
+    return get_push_status(username)
+
+
+@app.post("/api/push/preferences")
+def update_push_preferences(payload: ReminderPreferencePayload, authorization: str | None = Header(default=None)):
+    _require_user_session(authorization, payload.username, {"student"})
+    user = get_user_by_username(payload.username)
+    if not user or user.get("role") != "student":
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản học sinh.")
+    updates = {
+        key: value
+        for key, value in (("deadline", payload.deadline), ("schedule", payload.schedule))
+        if value is not None
+    }
+    if not updates:
+        raise HTTPException(status_code=400, detail="Chưa chọn loại nhắc nào để thay đổi.")
+    return {"reminders": set_reminder_preferences(payload.username, updates)}
+
+
+@app.get("/api/push/preferences")
+def read_push_preferences(
+    username: str = Query(...),
+    authorization: str | None = Header(default=None),
+):
+    _require_user_session(authorization, username)
+    return {"reminders": get_reminder_preferences(username)}
+
+
 @app.post("/api/internal/push-due")
 def trigger_due_task_pushes(x_cron_secret: str | None = Header(default=None, alias="X-Cron-Secret")):
     expected_secret = os.getenv("PUSH_CRON_SECRET", "")
@@ -446,7 +582,7 @@ def trigger_due_task_pushes(x_cron_secret: str | None = Header(default=None, ali
         raise HTTPException(status_code=503, detail="Chưa cấu hình PUSH_CRON_SECRET.")
     if not x_cron_secret or not secrets.compare_digest(x_cron_secret, expected_secret):
         raise HTTPException(status_code=403, detail="Không được phép gọi tác vụ này.")
-    return {"reminders": send_due_task_reminders()}
+    return {"reminders": send_due_task_reminders(), "schedule": send_schedule_reminders()}
 
 
 @app.get("/login")

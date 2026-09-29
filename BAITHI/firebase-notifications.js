@@ -3,6 +3,7 @@ import { getAnalytics, isSupported as analyticsIsSupported } from "https://www.g
 import {
   getMessaging,
   getToken,
+  deleteToken,
   isSupported as messagingIsSupported,
   onMessage,
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-messaging.js";
@@ -68,7 +69,7 @@ async function requestNotificationPermission() {
 async function registerWebToken(username, token) {
   const response = await fetch("/api/push/register", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${localStorage.getItem('study_sync_session_token') || ''}` },
     body: JSON.stringify({ username, token }),
   });
 
@@ -78,6 +79,17 @@ async function registerWebToken(username, token) {
   }
   return response.json();
 }
+
+async function unregisterWebToken(username) {
+  const response = await fetch("/api/push/unregister", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${localStorage.getItem('study_sync_session_token') || ''}` },
+    body: JSON.stringify({ username }),
+  });
+  return response.ok;
+}
+
+// Firebase Web SDK cap nhat token qua getToken khi mo lai app.
 
 export function isDesktopBrowser() {
   return !/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
@@ -110,7 +122,6 @@ export async function enableWebNotifications(username) {
   if (!username) {
     throw new Error("Không xác định được tài khoản đang đăng nhập.");
   }
-
   if (isIOS() && !isInstalledAsApp()) {
     throw new Error(describeMobileRequirement());
   }
@@ -137,6 +148,40 @@ export async function enableWebNotifications(username) {
 
   await registerWebToken(username, token);
   return token;
+}
+
+// App PWA thường bị cache boi Service Worker nen token da gui truoc do có the
+// da het han. Khi nguoi dung mo lai app, ta gui lai token hien tai de chắc chắn
+// may chu van nhan duoc thong bao.
+export async function syncNotificationToken(username) {
+  if (!username) return null;
+  if (Notification.permission !== "granted") return null;
+  if (!messaging) {
+    await initializeMessaging();
+  }
+  const configResponse = await fetch("/api/push/config", { cache: "no-store" });
+  const pushConfig = await configResponse.json();
+  if (!configResponse.ok || !pushConfig.ready || !pushConfig.vapid_key) return null;
+
+  const serviceWorkerRegistration = await registerServiceWorker();
+  const token = await getToken(messaging, {
+    vapidKey: pushConfig.vapid_key,
+    serviceWorkerRegistration,
+  });
+  if (!token) return null;
+  await registerWebToken(username, token);
+  return token;
+}
+
+export async function disableWebNotifications(username) {
+  await unregisterWebToken(username);
+  if (messaging) {
+    try {
+      await deleteToken(messaging);
+    } catch (error) {
+      console.warn("Không xóa được FCM token cục bộ:", error);
+    }
+  }
 }
 
 export function listenForForegroundMessages(showNotification = showBrowserNotification) {

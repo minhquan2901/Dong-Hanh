@@ -7,7 +7,12 @@ from typing import Any
 from uuid import uuid4
 
 from auth_service import delete_user_account, get_user_by_username, load_users, rename_user_account, update_account
-from backend.notification_service import remove_user_web_tokens, rename_user_web_tokens
+from backend.notification_service import (
+    remove_user_mobile_tokens,
+    remove_user_web_tokens,
+    rename_user_mobile_tokens,
+    rename_user_web_tokens,
+)
 from bus.study_bus import StudyBus
 from data_storage import data_file
 from db import load_document, save_document
@@ -105,6 +110,7 @@ def rename_managed_user(
     updated = rename_user_account(old_name, next_name, full_name, class_name)
     study.repository.rename_user_data(old_name, next_name)
     rename_user_web_tokens(old_name, next_name)
+    rename_user_mobile_tokens(old_name, next_name)
     rename_report_username(old_name, next_name)
 
     old_key = old_name.casefold()
@@ -152,6 +158,7 @@ def delete_managed_user(user_id: str) -> bool:
         return False
     StudyBus().repository.delete_user_data(username)
     remove_user_web_tokens(username)
+    remove_user_mobile_tokens(username)
     target = username.casefold()
     with USAGE_LOCK:
         events = _read_usage_events()

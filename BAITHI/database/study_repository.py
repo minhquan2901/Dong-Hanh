@@ -107,6 +107,13 @@ class StudyRepository:
                     "CREATE INDEX IF NOT EXISTS assignments_owner_due_idx "
                     "ON assignments(owner_username, due_date)"
                 )
+                # Scheduler nhắc hạn chạy mỗi phút và luôn lọc
+                # `completed = 0 AND due_date <= ?`, nên cần index riêng cho
+                # mẫu lọc này thay vì index có owner_username ở đầu.
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS assignments_due_pending_idx "
+                    "ON assignments(due_date, completed)"
+                )
                 conn.commit()
                 return
             conn.execute(
@@ -153,6 +160,10 @@ class StudyRepository:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS assignments_owner_due_idx "
                 "ON assignments(owner_username, due_date)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS assignments_due_pending_idx "
+                "ON assignments(due_date, completed)"
             )
             legacy_owner = os.environ.get("LEGACY_STUDY_OWNER_USERNAME", "").strip()
             if legacy_owner:

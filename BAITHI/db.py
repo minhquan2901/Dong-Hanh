@@ -41,6 +41,11 @@ _OVERRIDE_ATTRS = {
     "feedback_inbox": ("feedback_service", "INBOX_FILE"),
     "feature_usage": ("owner_service", "USAGE_FILE"),
     "push_reminder_state": ("backend.notification_service", "PUSH_REMINDER_STATE_FILE"),
+    "push_schedule_state": ("backend.notification_service", "PUSH_SCHEDULE_STATE_FILE"),
+    "mobile_push_subscriptions": ("backend.notification_service", "MOBILE_PUSH_SUBSCRIPTIONS_FILE"),
+    "reminder_preferences": ("backend.notification_service", "REMINDER_PREFERENCES_FILE"),
+    "push_status": ("backend.notification_service", "PUSH_STATUS_FILE"),
+    "web_push_subscriptions": ("backend.notification_service", "WEB_PUSH_SUBSCRIPTIONS_FILE"),
 }
 
 

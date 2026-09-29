@@ -16,13 +16,21 @@ if (firebaseConfig.apiKey && firebaseConfig.projectId) {
   firebase.initializeApp(firebaseConfig);
   const messaging = firebase.messaging();
 
+  // Khi payload co san `notification`, FCM/Android da tu hien bang thong bao he thong.
+  // Neu ta showNotification them o day thi nguoi dung se thay 2 thong bao trung nhau.
+  // Vay vay chi tu hien khi server gui data-only (payload.notification == null).
   messaging.onBackgroundMessage((payload) => {
-    const title = payload.notification?.title || 'StudySync';
+    if (payload && payload.notification) {
+      return;
+    }
+    const title = (payload.data && payload.data.title) || 'StudySync';
     const options = {
-      body: payload.notification?.body || '',
+      body: (payload.data && payload.data.body) || '',
       icon: '/static/studysync-icon-v2-192.png',
       badge: '/static/studysync-icon-v2-72.png',
-      data: { url: payload.data?.url || payload.fcmOptions?.link || '/student' },
+      tag: (payload.data && payload.data.tag) || 'studysync',
+      renotify: false,
+      data: { url: (payload.data && payload.data.url) || '/student' },
     };
     self.registration.showNotification(title, options);
   });

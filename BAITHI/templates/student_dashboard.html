@@ -194,6 +194,14 @@
       .pwa-install-guide[hidden], .pwa-install-button[hidden] { display: none; }
       .pwa-install-guide p { margin: 3px 0 0; color: var(--muted); font-size: .86rem; }
       .pwa-install-button { flex: 0 0 auto; min-height: 38px; border: 0; border-radius: 8px; padding: 8px 12px; background: var(--primary); color: #fff; font-weight: 800; cursor: pointer; }
+      .push-settings { padding: 12px 16px; border-bottom: 1px solid var(--line); background: #fff; color: var(--text); display: flex; flex-direction: column; gap: 10px; }
+      .push-settings[hidden] { display: none; }
+      .push-settings-head strong { display: block; }
+      .push-settings-head p { margin: 3px 0 0; color: var(--muted); font-size: .86rem; }
+      .push-settings-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; font-size: .9rem; }
+      .push-settings-row label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+      .push-device-count { margin-left: auto; color: var(--muted); font-size: .84rem; }
+      body.dark .push-settings { background: #232a2d; color: #d0dbd7; }
       .toast-stack { position: fixed; right: 20px; bottom: 20px; z-index: 30; display: grid; gap: 10px; width: min(360px, calc(100vw - 32px)); }
       .web-toast { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 15px 16px; background: var(--card); border: 1px solid var(--line); border-left: 5px solid var(--secondary); border-radius: 14px; box-shadow: 0 18px 40px rgba(15, 23, 42, .18); animation: toast-in .25s ease-out; }
       .toast-content { display: flex; align-items: flex-start; gap: 10px; }
@@ -299,6 +307,18 @@
         <p id="pwa-install-help"></p>
       </div>
       <button class="pwa-install-button" id="pwa-install-button" type="button" hidden>Cài ứng dụng</button>
+    </aside>
+
+    <aside class="push-settings" id="push-settings" hidden>
+      <div class="push-settings-head">
+        <strong>Cài đặt thông báo</strong>
+        <p id="push-status-line">Chưa đăng ký thiết bị nào.</p>
+      </div>
+      <div class="push-settings-row">
+        <label><input type="checkbox" id="push-reminder-deadline" checked /> Nhắc hạn bài</label>
+        <label><input type="checkbox" id="push-reminder-schedule" checked /> Nhắc lịch học</label>
+        <span class="push-device-count" id="push-device-count"></span>
+      </div>
     </aside>
 
     <main class="container">
@@ -482,6 +502,11 @@
       const studentStateKey = `study_sync_student_state_${user.username}`;
       const themeToggle = document.getElementById('theme-toggle');
       const webNotificationToggle = document.getElementById('web-notification-toggle');
+      const pushSettings = document.getElementById('push-settings');
+      const pushStatusLine = document.getElementById('push-status-line');
+      const pushDeviceCount = document.getElementById('push-device-count');
+      const deadlineReminder = document.getElementById('push-reminder-deadline');
+      const scheduleReminder = document.getElementById('push-reminder-schedule');
       const pwaInstallGuide = document.getElementById('pwa-install-guide');
       const pwaInstallHelp = document.getElementById('pwa-install-help');
       const pwaInstallButton = document.getElementById('pwa-install-button');
@@ -581,11 +606,58 @@
 
         try {
           await foregroundMessagesSetup;
+          const notifications = mod || await import('/firebase-notifications.js');
+          // Token FCM co han, nen moi lan mo app deu gui lai token hien tai.
+          await notifications.syncNotificationToken(user.username);
+        } catch (error) {
+          console.error('Không đồng bộ được token thông báo:', error);
         } finally {
           foregroundMessagesSetup = null;
         }
       }
 
+      async function refreshPushSettings() {
+        if (!sessionToken) return;
+        try {
+          const response = await fetch(`/api/push/status?username=${encodeURIComponent(user.username)}`, {
+            headers: { 'Authorization': `Bearer ${sessionToken}` }, cache: 'no-store',
+          });
+          if (!response.ok) return;
+          const status = await response.json();
+          pushSettings.hidden = false;
+          deadlineReminder.checked = status.reminders.deadline;
+          scheduleReminder.checked = status.reminders.schedule;
+          const count = status.web_devices + status.mobile_devices;
+          pushDeviceCount.textContent = `${count} thiết bị đã đăng ký`;
+          pushStatusLine.textContent = status.last_error
+            ? `Lần gửi gần nhất bị lỗi: ${status.last_error}`
+            : (status.last_success_at ? `Gửi thành công gần nhất: ${status.last_success_at}`
+              : (count ? 'Đã đăng ký, đang chờ thông báo đầu tiên.' : 'Chưa đăng ký thiết bị nào.'));
+        } catch (error) {
+          console.error('Không đọc được trạng thái thông báo:', error);
+        }
+      }
+
+      for (const [input, key] of [[deadlineReminder, 'deadline'], [scheduleReminder, 'schedule']]) {
+        input.addEventListener('change', async () => {
+          input.disabled = true;
+          try {
+            const response = await fetch('/api/push/preferences', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` },
+              body: JSON.stringify({ username: user.username, [key]: input.checked }),
+            });
+            if (!response.ok) throw new Error('Không lưu được tùy chọn nhắc.');
+            await refreshPushSettings();
+          } catch (error) {
+            input.checked = !input.checked;
+            showWebToast('Cài đặt thông báo', error.message);
+          } finally {
+            input.disabled = false;
+          }
+        });
+      }
+      void refreshPushSettings();
       updateWebNotificationButton();
       webNotificationToggle.addEventListener('click', async () => {
         webNotificationToggle.disabled = true;
@@ -595,6 +667,7 @@
           await ensureForegroundMessageListener(mod);
           localStorage.setItem(`studysync-web-notifications-${user.username}`, 'true');
           updateWebNotificationButton();
+          await refreshPushSettings();
           showWebToast('Đã bật thông báo', mod.isDesktopBrowser()
             ? 'Thông báo đã được bật trên trình duyệt này.'
             : (mod.isIOS() ? 'Thông báo đã được bật trong app StudySync trên iPhone/iPad.' : 'Thông báo đã được bật trên điện thoại này.'));
@@ -613,6 +686,9 @@
         void ensureForegroundMessageListener().catch((error) => {
           console.error('Không khởi động được listener thông báo:', error);
         });
+      } else if (webNotificationToggle.hidden === false) {
+        // Nhắc nhở khi mở app trên điện thoại mà chưa bật thông báo.
+        showWebToast('Chưa bật thông báo', 'Bạn sẽ không nhận được nhắc hạn bài khi đang dùng điện thoại.');
       }
 
       function showWebToast(title, message) {
