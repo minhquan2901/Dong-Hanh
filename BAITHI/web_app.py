@@ -797,9 +797,6 @@ def login(payload: AuthPayload):
             return {"requires_pin": True, "message": "Nhập mã PIN để tiếp tục đăng nhập."}
         if not verify_secondary_pin(payload.username, payload.pin):
             raise HTTPException(status_code=401, detail="Mã PIN không đúng.")
-    bot_enabled = get_username_bot_status()["enabled"]
-    if bot_enabled:
-        scan_registered_users(load_users())
     try:
         session_token = create_user_token(str(user.get("username", "")), str(user.get("role", "student")), int(user.get("session_version", 0)))
     except RuntimeError as exc:

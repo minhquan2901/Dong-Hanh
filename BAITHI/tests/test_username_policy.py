@@ -181,6 +181,24 @@ def test_legacy_user_can_use_account_and_keep_study_data(tmp_path, monkeypatch):
     assert [task["title"] for task in dashboard.json()["assignments"]] == ["Bài giữ lại"]
 
 
+def test_login_does_not_run_username_scan(tmp_path, monkeypatch):
+    monkeypatch.setattr("auth_service.USERS_FILE", tmp_path / "users.json")
+    monkeypatch.setattr("web_app.get_username_bot_status", lambda: {"enabled": True})
+    monkeypatch.setattr(
+        "web_app.scan_registered_users",
+        lambda _users: (_ for _ in ()).throw(AssertionError("login must not scan")),
+    )
+    monkeypatch.setenv("STUDYSYNC_SESSION_SECRET", "test-session-secret-for-login-scan")
+    register_user("student01", "Password1", "student", "Học sinh", "8/1")
+
+    response = TestClient(app).post("/api/auth/login", json={
+        "username": "student01",
+        "password": "Password1",
+    })
+
+    assert response.status_code == 200
+
+
 
 def test_equivalent_usernames_are_treated_as_duplicate(tmp_path, monkeypatch):
     """Bỏ dấu/khoảng trắc phải ra cùng một người, không tạo được tài khoản trùng."""

@@ -201,7 +201,7 @@ def identity_violations(user: dict[str, Any]) -> list[str]:
 
 
 def _read_state() -> dict[str, Any]:
-    state = load_document(POLICY_DOCUMENT, {"enabled": True, "violations": [], "last_scan_at": None}, "kiểm duyệt tài khoản")
+    state = load_document(POLICY_DOCUMENT, {"enabled": False, "violations": [], "last_scan_at": None}, "kiểm duyệt tài khoản")
     if not isinstance(state, dict):
         raise RuntimeError("Trạng thái kiểm duyệt tài khoản không hợp lệ.")
     violations = state.get("violations", [])
