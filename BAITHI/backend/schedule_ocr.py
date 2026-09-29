@@ -65,6 +65,12 @@ SUBJECT_ALIASES: dict[str, str] = {
     "gdp": "GD địa phương", "chuyende": "Chuyên đề", "stem": "STEM",
 }
 
+SUBJECT_TEXT_ALIASES = {
+    "hdtnshdc": "HDTN-SHDC",
+    "hdtncd": "HDTN-CĐ",
+    "hdtnshl": "HDTN-SHL",
+}
+
 _SPLIT_ON_DASH = re.compile(r"\s*[-\u2013\u2014]\s*")
 _CLEAN = re.compile(r"[\u2022\u00b7|]+")
 
@@ -417,6 +423,8 @@ def _format_subject(text: str) -> str:
     """Chuan hoa ten mon hoc, co giai chinh loai OCR gay sai ky tu."""
     clean = _clean_text(text)
     key = _key(clean)
+    if key in SUBJECT_TEXT_ALIASES:
+        return SUBJECT_TEXT_ALIASES[key]
     if key in SUBJECT_ALIASES:
         return SUBJECT_ALIASES[key]
     # OCR hay nhoi them ky tu la o cuoi ("LICH SUr") hoac sai mot ky tu.

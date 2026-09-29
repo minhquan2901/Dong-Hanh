@@ -95,8 +95,13 @@ def test_two_line_cells_split_into_subject_and_lecturer():
     # Ô viết trên hai dòng "HDTN-SHDC" / "L.M.Thành" phải giữ nguyên dấu
     # gạch trong tên môn, không được cắt thành "HDTN" và "SHDC".
     hdtn = [slot for slot in slots if slot["subject"].startswith("HDTN")]
-    assert {slot["subject"] for slot in hdtn} == {"HDTN-SHDC", "HDTN-CĐ"}
-    assert all(slot["lecturer"].startswith("L.M") for slot in hdtn)
+    assert {slot["subject"] for slot in hdtn} == {"HDTN-SHDC", "HDTN-CĐ", "HDTN-SHL"}
+    lecturers = {slot["subject"]: slot["lecturer"] for slot in hdtn}
+    assert lecturers == {
+        "HDTN-SHDC": "L. M.Thanh",
+        "HDTN-CĐ": "L.M.Thanh",
+        "HDTN-SHL": "L. M.Thanh",
+    }
 
 
 def test_empty_rows_still_count_as_periods():
@@ -145,8 +150,8 @@ def test_extracts_timetable_grid_from_image():
     # Buổi chiều tiết 1 Thứ 4 là Toán, giáo viên viết không dấu trên ảnh.
     assert grid[("afternoon", "4", 1)]["subject"] == "Toán"
     assert grid[("afternoon", "4", 1)]["lecturer"] == "T.Hoang"
-    # Ô trống buổi chiều tiết 1 cột Thứ 6 không được tạo ra tiết.
-    assert ("afternoon", "6", 1) not in grid
+    # Ảnh mẫu có Toán ở buổi chiều, tiết 1, cột Thứ 6.
+    assert grid[("afternoon", "6", 1)]["subject"] == "Toán"
 
 
 def test_import_endpoint_requires_student_session(student_client):
