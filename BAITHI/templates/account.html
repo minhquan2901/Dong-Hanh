@@ -162,18 +162,9 @@
             setTimeout(() => document.getElementById('report-dialog').showModal(), 0);
         }
         async function request(url, options = {}) { const response = await fetch(url, { ...options, headers: { ...(options.headers || {}), Authorization: `Bearer ${token}` } }); const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.detail || 'Yêu cầu thất bại.'); return data }
-        const identityReview = document.getElementById('identity-review');
-        const identityRequired = localStorage.getItem('study_sync_identity_update_required') === 'true' || location.hash === '#identity-review';
-        if (identityRequired && user && token) {
-            identityReview.hidden = false;
-            document.getElementById('identity-reasons').textContent = JSON.parse(localStorage.getItem('study_sync_identity_reasons') || '[]').join(' ');
-            document.getElementById('identity-full-name').value = user.full_name || '';
-            document.getElementById('identity-class-wrap').hidden = user.role !== 'student';
-            document.getElementById('identity-class-name').required = user.role === 'student';
-            const suggestions = JSON.parse(localStorage.getItem('study_sync_username_suggestions') || '[]');
-            document.getElementById('username-suggestions').textContent = suggestions.length ? `Gợi ý username: ${suggestions.join(', ')}` : '';
-            if (suggestions.length) document.getElementById('new-username').value = suggestions[0];
-        }
+        localStorage.removeItem('study_sync_identity_update_required');
+        localStorage.removeItem('study_sync_identity_reasons');
+        localStorage.removeItem('study_sync_username_suggestions');
         if (user && token) request('/api/profile?username=' + encodeURIComponent(user.username)).then(({ user: current }) => {
             document.getElementById('username').value = current.username;
             document.getElementById('full-name').value = current.full_name || '';

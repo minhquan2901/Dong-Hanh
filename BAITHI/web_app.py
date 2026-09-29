@@ -64,8 +64,6 @@ from feedback_service import create_report, list_reports, mark_report_read
 from username_policy import (
     generate_suggested_username,
     get_username_bot_status,
-    identity_violations,
-    record_signup_violation,
     resolve_signup_violation,
     resolve_username_violation,
     scan_registered_users,
@@ -303,7 +301,6 @@ def _require_user_session(
     authorization: str | None,
     username: str,
     allowed_roles: set[str] | None = None,
-    allow_identity_update: bool = False,
 ):
     scheme, _, token = str(authorization or "").partition(" ")
     user = get_user_by_username(username)
@@ -317,11 +314,6 @@ def _require_user_session(
         raise HTTPException(status_code=401, detail="Vui lòng đăng nhập lại để tiếp tục.")
     if allowed_roles and user.get("role") not in allowed_roles:
         raise HTTPException(status_code=403, detail="Không có quyền thực hiện thao tác này.")
-    if not allow_identity_update and get_username_bot_status()["enabled"] and identity_violations(user):
-        raise HTTPException(
-            status_code=403,
-            detail="Bot kiểm duyệt yêu cầu cập nhật username, họ tên hoặc lớp trước khi tiếp tục.",
-        )
     return user
 
 
@@ -714,7 +706,6 @@ def login(payload: AuthPayload):
         if not verify_secondary_pin(payload.username, payload.pin):
             raise HTTPException(status_code=401, detail="Mã PIN không đúng.")
     bot_enabled = get_username_bot_status()["enabled"]
-    policy_reasons = identity_violations(user) if bot_enabled else []
     if bot_enabled:
         scan_registered_users(load_users())
     try:
@@ -738,12 +729,8 @@ def login(payload: AuthPayload):
         "message": "Đăng nhập thành công.",
         "user": sanitized,
         "token": session_token,
-        "identity_update_required": bool(policy_reasons),
-        "identity_reasons": policy_reasons,
-        "username_suggestions": generate_suggested_username(
-            str(user.get("full_name", "")),
-            existing_usernames=[str(item.get("username", "")) for item in load_users()],
-        ),
+        "identity_update_required": False,
+        "identity_reasons": [],
     }
 
 
@@ -757,30 +744,10 @@ def register(payload: AuthPayload):
     policy_enabled = get_username_bot_status()["enabled"]
     class_name = payload.class_name or ""
     if policy_enabled:
-        issues: list[str] = []
-        username_valid, username_message = validate_username(payload.username)
-        if not username_valid:
-            issues.append(username_message)
-        full_name = payload.full_name or payload.username
-        if payload.role.strip().lower() == "student":
-            name_valid, name_message = validate_display_name(full_name)
-            if not name_valid:
-                issues.append(name_message)
         if payload.role.strip().lower() == "student":
             class_valid, class_result = validate_class_name(class_name)
-            if not class_valid:
-                issues.append(class_result)
-            else:
+            if class_valid:
                 class_name = class_result
-        if issues:
-            record_signup_violation(payload.username, issues)
-            raise HTTPException(
-                status_code=400,
-                detail=" ".join(issues),
-                headers={"X-Username-Suggestions": ",".join(generate_suggested_username(
-                    full_name, existing_usernames=[str(item.get("username", "")) for item in load_users()]
-                ))},
-            )
 
     try:
         user = register_user(
@@ -822,9 +789,7 @@ def update_required_identity(
     payload: IdentityUpdatePayload,
     authorization: str | None = Header(default=None),
 ):
-    current_user = _require_user_session(
-        authorization, payload.username, allow_identity_update=True
-    )
+    current_user = _require_user_session(authorization, payload.username)
     username_valid, username_message = validate_username(payload.new_username)
     if not username_valid:
         raise HTTPException(
@@ -1250,7 +1215,7 @@ def parent_children(username: str = Query(...)):
 
 @app.get("/api/profile")
 def user_profile(username: str = Query(...), authorization: str | None = Header(default=None)):
-    user = _require_user_session(authorization, username, allow_identity_update=True)
+    user = _require_user_session(authorization, username)
     return {"user": _public_user(user)}
 
 

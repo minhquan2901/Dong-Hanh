@@ -279,13 +279,13 @@
         <div class="panel" id="username-bot-panel">
           <div class="panel-title-row">
             <div>
-              <h3>Bot kiểm duyệt tài khoản</h3>
-              <p class="subtle">Kiểm tra username, họ tên và lớp; tài khoản cần chỉnh sửa sẽ được nhắc khi đăng nhập.</p>
+              <h3>Báo cáo username và lớp</h3>
+              <p class="subtle">Bot chỉ ghi nhận hồ sơ chưa đúng quy tắc tại đây để owner xem; không gửi cảnh báo hoặc hạn chế tài khoản.</p>
             </div>
             <span class="pill" id="username-bot-state">Đang tải...</span>
           </div>
           <div class="toolbar compact">
-            <label class="checkbox"><input type="checkbox" id="username-bot-enabled" /> Bật bot</label>
+            <label class="checkbox"><input type="checkbox" id="username-bot-enabled" /> Bật quét và báo cáo</label>
             <button class="mini-button secondary" id="username-bot-scan" type="button">Quét ngay</button>
           </div>
           <p class="subtle" id="username-bot-scan-time"></p>
@@ -447,7 +447,7 @@
               <td>${user.role === 'student' ? 'Học sinh' : 'Phụ huynh'}</td>
               <td>${escapeHtml([user.student_id, user.class_name].filter(Boolean).join(' · ') || '—')}</td>
               <td>${user.successful_actions || 0}</td>
-              <td><span class="status ${user.is_active ? 'on' : 'off'}">${user.is_active ? 'Đang hoạt động' : 'Đã khóa'}</span>${user.policy_violations?.length ? '<br><span class="status off">Cần cập nhật thông tin</span>' : ''}</td>
+              <td><span class="status ${user.is_active ? 'on' : 'off'}">${user.is_active ? 'Đang hoạt động' : 'Đã khóa'}</span>${user.policy_violations?.length ? '<br><span class="status off">Có báo cáo username/lớp</span>' : ''}</td>
               <td>
                 <div class="action-stack">
                   <button class="mini-button ${user.is_active ? 'danger' : 'secondary'}" data-user-action="toggle" data-user-id="${user.id}">${user.is_active ? 'Khóa' : 'Mở khóa'}</button>
@@ -554,7 +554,7 @@
         return `
         <article class="report-item unread">
           <div class="report-head">
-            <div><strong>@${escapeHtml(rawName)}</strong><span>${isRegistration ? 'Đăng ký bị từ chối' : escapeHtml(item.role)}</span></div>
+            <div><strong>@${escapeHtml(rawName)}</strong><span>${isRegistration ? 'Đăng ký cũ' : escapeHtml(item.role)}</span></div>
             <span class="report-time">${escapeHtml(item.last_seen_at || item.first_seen_at || '')}</span>
           </div>
           <p>${(item.reasons || []).map(escapeHtml).join('<br>')}</p>

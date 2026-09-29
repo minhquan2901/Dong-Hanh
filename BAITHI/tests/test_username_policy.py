@@ -101,7 +101,7 @@ def test_rename_user_preserves_id_and_updates_parent_links(tmp_path, monkeypatch
     assert requests[0]["student_username"] == "student_new"
 
 
-def test_registration_rejects_bad_username_and_class_with_suggestions(tmp_path, monkeypatch):
+def test_registration_allows_invalid_identity_and_reports_only_to_owner(tmp_path, monkeypatch):
     monkeypatch.setattr("auth_service.USERS_FILE", tmp_path / "users.json")
     monkeypatch.setattr("web_app.get_username_bot_status", lambda: {"enabled": True})
     state = {"enabled": True, "violations": [], "last_scan_at": None}
@@ -111,32 +111,39 @@ def test_registration_rejects_bad_username_and_class_with_suggestions(tmp_path, 
         state.update(value)
 
     monkeypatch.setattr("username_policy.save_document", save_document)
+    monkeypatch.setenv("STUDYSYNC_SESSION_SECRET", "test-session-secret-for-invalid-identity")
     client = TestClient(app)
 
-    invalid = client.post("/api/auth/register", json={
+    registration = client.post("/api/auth/register", json={
         "username": "asdfgh",
         "password": "Password1",
         "full_name": "Nguyễn Văn An",
         "role": "student",
         "class_name": "10A1",
     })
-    assert invalid.status_code == 400
-    assert "X-Username-Suggestions" in invalid.headers
+    assert registration.status_code == 200
+    assert registration.json()["user"]["username"] == "asdfgh"
+    assert registration.json()["user"]["class_name"] == "10A1"
     assert state["violations"][0]["status"] == "pending"
+    assert len(state["violations"][0]["reasons"]) == 2
+    assert any(reason.startswith("Lớp phải") for reason in state["violations"][0]["reasons"])
 
-    valid = client.post("/api/auth/register", json={
-        "username": "an_nguyen",
+    login = client.post("/api/auth/login", json={
+        "username": "asdfgh",
         "password": "Password1",
-        "full_name": "Nguyễn Văn An",
-        "role": "student",
-        "class_name": "8/2",
     })
-    assert valid.status_code == 200
-    assert valid.json()["user"]["class_name"] == "8/2"
-    assert state["violations"][0]["status"] == "pending"
+    assert login.status_code == 200
+    assert login.json()["identity_update_required"] is False
+    assert login.json()["identity_reasons"] == []
+
+    headers = {"Authorization": f"Bearer {login.json()['token']}"}
+    profile = client.get("/api/profile", params={"username": "asdfgh"}, headers=headers)
+    assert profile.status_code == 200
+    assert profile.json()["user"]["class_name"] == "10A1"
+    assert client.get("/api/owner/username-bot").status_code == 401
 
 
-def test_legacy_user_can_update_identity_and_keep_study_data(tmp_path, monkeypatch):
+def test_legacy_user_can_use_account_and_keep_study_data(tmp_path, monkeypatch):
     monkeypatch.setattr("auth_service.USERS_FILE", tmp_path / "users.json")
     monkeypatch.setattr("owner_service.USAGE_FILE", tmp_path / "feature_usage.json")
     monkeypatch.setattr("database.study_repository.data_file", lambda name: tmp_path / name)
@@ -151,26 +158,14 @@ def test_legacy_user_can_update_identity_and_keep_study_data(tmp_path, monkeypat
     monkeypatch.setattr("feedback_service.save_document", lambda *_args, **_kwargs: None)
     monkeypatch.setenv("STUDYSYNC_SESSION_SECRET", "test-session-secret-for-identity-change")
 
-    legacy = register_user("old.name", "Password1", "student", "Học sinh", "10A1")
+    register_user("old.name", "Password1", "student", "Học sinh", "10A1")
     StudyBus().add_assignment("Bài giữ lại", "Toán", date(2026, 10, 1), "Cao", "old.name")
     client = TestClient(app)
     login = client.post("/api/auth/login", json={"username": "old.name", "password": "Password1"})
     assert login.status_code == 200
-    assert login.json()["identity_update_required"] is True
+    assert login.json()["identity_update_required"] is False
     old_headers = {"Authorization": f"Bearer {login.json()['token']}"}
-    assert client.get("/api/dashboard/student?username=old.name", headers=old_headers).status_code == 403
-
-    update = client.post("/api/profile/identity", headers=old_headers, json={
-        "username": "old.name",
-        "new_username": "student_new",
-        "full_name": "Học sinh mới",
-        "class_name": "8/2",
-    })
-    assert update.status_code == 200
-    assert update.json()["user"]["id"] == legacy["id"]
-    assert update.json()["user"]["username"] == "student_new"
-    new_headers = {"Authorization": f"Bearer {update.json()['token']}"}
-    dashboard = client.get("/api/dashboard/student?username=student_new", headers=new_headers)
+    dashboard = client.get("/api/dashboard/student?username=old.name", headers=old_headers)
     assert dashboard.status_code == 200
     assert [task["title"] for task in dashboard.json()["assignments"]] == ["Bài giữ lại"]
 
