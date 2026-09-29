@@ -73,8 +73,19 @@ def test_identity_scan_tracks_violations_and_resolves_fixed_user(monkeypatch):
 
     first = scan_registered_users([user])
     assert first["violation_count"] == 1
+    assert first["violations"][0]["suggestions"] == []
     # "old.name" van hop le, chi con loai 10A1 la sai.
     assert len(identity_violations(user)) == 1
+
+    invalid_username = {
+        **user,
+        "username": "aka",
+        "full_name": "Nguyễn Văn An",
+        "class_name": "8/2",
+    }
+    third = scan_registered_users([invalid_username])
+    aka_violation = next(item for item in third["violations"] if item["username"] == "aka")
+    assert aka_violation["suggestions"]
 
     fixed = {**user, "username": "an_nguyen", "class_name": "8/2"}
     second = scan_registered_users([fixed])

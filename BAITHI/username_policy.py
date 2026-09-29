@@ -305,13 +305,18 @@ def scan_registered_users(users: list[dict[str, Any]]) -> dict[str, Any]:
                 existing[key]["last_seen_at"] = now
             continue
         old = existing.get(key, {})
+        username_valid, _ = validate_username(username)
         existing[key] = {
             "username": username,
             "role": str(user.get("role", "student")),
             "reasons": reasons,
-            # Kem goi y de quan tri co the doi nhanh trong trang admin.
-            "suggestions": generate_suggested_username(
-                str(user.get("full_name", "")), existing_usernames=all_usernames
+            # Chi goi y doi ten khi username thuc su vi pham; loi lop chi can
+            # hien goi y lop, tranh lam nguoi dung tuong phai doi username.
+            "suggestions": (
+                generate_suggested_username(
+                    str(user.get("full_name", "")), existing_usernames=all_usernames
+                )
+                if not username_valid else []
             ),
             "suggested_class": _suggest_class(user),
             "status": "pending",
