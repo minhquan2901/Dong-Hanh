@@ -411,7 +411,7 @@
           <div class="schedule-actions">
             <button id="edit-schedule-button" class="edit-button" type="button">Chỉnh sửa thời khóa biểu</button>
             <button id="import-schedule-button" class="edit-button" type="button" hidden>Tạo từ ảnh</button>
-            <input id="import-schedule-file" type="file" accept="image/png,image/jpeg,image/webp" hidden />
+            <input id="import-schedule-file" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" hidden />
           </div>
           <div id="import-schedule-panel" class="import-schedule-panel" hidden>
             <p class="sub">Chụp hoặc tải ảnh thời khóa biểu. Máy sẽ đọc chữ và dựng bảng để bạn kiểm tra trước khi lưu.</p>
@@ -1095,11 +1095,16 @@
         let sourceHeight;
         let releaseSource = () => {};
         if ('createImageBitmap' in window) {
-          source = await createImageBitmap(file);
-          sourceWidth = source.width;
-          sourceHeight = source.height;
-          releaseSource = () => source.close();
-        } else {
+          try {
+            source = await createImageBitmap(file);
+            sourceWidth = source.width;
+            sourceHeight = source.height;
+            releaseSource = () => source.close();
+          } catch (error) {
+            source = null;
+          }
+        }
+        if (!source) {
           const objectUrl = URL.createObjectURL(file);
           source = await new Promise((resolve, reject) => {
             const image = new Image();
@@ -1111,7 +1116,7 @@
           sourceWidth = source.naturalWidth;
           sourceHeight = source.naturalHeight;
         }
-        const maxSide = 1800;
+        const maxSide = 1600;
         const scale = Math.min(1, maxSide / Math.max(sourceWidth, sourceHeight));
         const canvas = document.createElement('canvas');
         canvas.width = Math.max(1, Math.round(sourceWidth * scale));

@@ -43,7 +43,7 @@ SESSION_MARKERS = {
 _DAY_KEY_SET = {name for keys in DAY_KEYS.values() for name in keys}
 
 # OCR khong can giu nguyen anh 4K: thu nho truoc de giam RAM va thoi gian xu ly.
-OCR_MAX_DIMENSION = 1800
+OCR_MAX_DIMENSION = 1600
 MAX_TIMETABLE_IMAGE_BYTES = 8 * 1024 * 1024
 
 # Thời khóa biểu lưu được tiết 1 đến MAX_PERIOD, khớp với giới hạn ở
@@ -90,7 +90,8 @@ def _engine() -> Any:
     if _ENGINE is None:
         from rapidocr_onnxruntime import RapidOCR
 
-        _ENGINE = RapidOCR()
+        # TKB chi dung chu ngang, khong can model phan loai huong chu.
+        _ENGINE = RapidOCR(use_cls=False, max_side_len=OCR_MAX_DIMENSION)
     return _ENGINE
 
 
@@ -145,6 +146,7 @@ def _read_lines(image_bytes: bytes) -> tuple[list[dict[str, Any]], list[float]]:
     # Render free vi moi request co the tao them buffer anh lon trong RAM.
     with _OCR_LOCK:
         result, _ = _engine()(image)
+    del image
     if not result:
         raise TimetableImageError("Không tìm thấy chữ trong ảnh. Hãy chụp rõ, không mờ và không bị che.")
 
