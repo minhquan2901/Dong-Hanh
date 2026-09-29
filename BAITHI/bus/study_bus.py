@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from database.study_repository import StudyRepository
+from database.study_repository import MAX_PERIOD, StudyRepository
 
 
 class StudyBus:
@@ -22,8 +22,8 @@ class StudyBus:
             raise ValueError("Buổi học không hợp lệ.")
         if day not in {"2", "3", "4", "5", "6", "7"}:
             raise ValueError("Thứ học không hợp lệ.")
-        if period not in range(1, 6):
-            raise ValueError("Tiết học phải từ 1 đến 5.")
+        if period not in range(1, MAX_PERIOD + 1):
+            raise ValueError(f"Tiết học phải từ 1 đến {MAX_PERIOD}.")
         if not subject.strip():
             raise ValueError("Tên môn học không được để trống.")
         return self.repository.upsert_schedule_slot(
@@ -92,13 +92,20 @@ class StudyBus:
         priority: str,
         username: str,
         due_time: time = time(23, 59),
+        description: str = "",
     ) -> dict[str, str | bool]:
         if not title.strip() or not subject.strip():
             raise ValueError("Tên bài tập và môn học không được để trống.")
         if priority not in {"Thấp", "Trung bình", "Cao", "Quan trọng"}:
             raise ValueError("Mức ưu tiên không hợp lệ.")
         due_at = datetime.combine(due_date, due_time, ZoneInfo("Asia/Ho_Chi_Minh"))
-        return self.repository.add_assignment(title.strip(), subject.strip(), due_at.isoformat(), priority, username)
+        return self.repository.add_assignment(
+            title.strip(), subject.strip(), due_at.isoformat(), priority, username,
+            description.strip(), "student",
+        )
+
+    def assignment_events(self, assignment_id: str, username: str) -> list[dict[str, str]]:
+        return self.repository.get_assignment_events(assignment_id, username)
 
     def set_completed(self, assignment_id: str, completed: bool, username: str) -> bool:
         return self.repository.set_assignment_completed(assignment_id, completed, username)

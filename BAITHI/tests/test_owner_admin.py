@@ -68,6 +68,21 @@ def test_owner_has_separate_login_and_can_manage_users(tmp_path, monkeypatch):
     }).status_code == 401
 
 
+def test_seeded_admin_accounts_have_owner_permissions(tmp_path, monkeypatch):
+    configure_owner(monkeypatch, tmp_path)
+    client = TestClient(app)
+
+    for username in ("gvLanAnh", "Chithien_owner"):
+        login = client.post("/api/owner/login", json={
+            "username": username,
+            "password": "Donghanh",
+        })
+        assert login.status_code == 200
+        headers = {"Authorization": f"Bearer {login.json()['token']}"}
+        assert client.get("/api/owner/overview", headers=headers).status_code == 200
+        assert client.get("/api/owner/users", headers=headers).status_code == 200
+
+
 def test_owner_login_reports_missing_environment_setup_safely(monkeypatch):
     monkeypatch.delenv("OWNER_USERNAME", raising=False)
     monkeypatch.delenv("OWNER_PASSWORD", raising=False)

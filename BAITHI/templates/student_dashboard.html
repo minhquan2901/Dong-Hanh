@@ -58,7 +58,7 @@
       body.dark .schedule-editor, body.dark .task-editor,
       body.dark .schedule-queue-item, body.dark .schedule-queue-item button,
       body.dark .schedule-editor input, body.dark .schedule-editor select,
-      body.dark .task-editor input, body.dark .task-editor select,
+      body.dark .task-editor input, body.dark .task-editor select, body.dark .task-editor textarea,
       body.dark .task-tools select, body.dark .security-form input,
       body.dark .pin-setting-field input { background-color: var(--card); color: var(--text); border-color: var(--line); }
       body.dark .hero { background: linear-gradient(120deg, #293638, #2a3833 58%, #39352d); border-color: #46524d; }
@@ -165,7 +165,8 @@
       .add-task-button { border: 0; border-radius: 9px; padding: 9px 13px; background: var(--primary); color: #fff; font-weight: 700; cursor: pointer; }
       .task-editor { display: none; grid-template-columns: 1.2fr 1fr 1fr .8fr 1fr auto; gap: 9px; padding: 13px; margin-bottom: 16px; background: #f8fbff; border: 1px solid var(--line); border-radius: 12px; }
       .task-editor.open { display: grid; }
-      .task-editor input, .task-editor select { width: 100%; min-height: 36px; border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; background: #fff; }
+      .task-editor input, .task-editor select, .task-editor textarea { width: 100%; min-height: 36px; border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; background: #fff; }
+      .task-editor textarea { min-height: 70px; resize: vertical; grid-column: 1 / -1; }
       .task-item { align-items: flex-start; }
       .task-content { flex: 1; }
       .task-actions { display: flex; gap: 6px; align-items: center; }
@@ -212,6 +213,15 @@
       .push-device-chip button:hover { color: var(--secondary); }
       body.dark .push-time-field input { background: #232a2d; color: #d0dbd7; }
       body.dark .push-settings { background: #232a2d; color: #d0dbd7; }
+      .import-schedule-panel { margin-top: 14px; padding: 16px; border: 1px dashed var(--line); border-radius: 12px; }
+      .import-schedule-preview { margin-top: 12px; overflow-x: auto; }
+      .import-schedule-table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+      .import-schedule-table th, .import-schedule-table td { border: 1px solid var(--line); padding: 6px 8px; text-align: center; vertical-align: middle; }
+      .import-schedule-table thead th { background: rgba(20, 168, 133, .12); }
+      .import-schedule-table td span { display: block; color: var(--muted); font-size: .78rem; margin-top: 2px; }
+      .import-schedule-table td.empty { background: rgba(0, 0, 0, .03); }
+      body.dark .import-schedule-table td.empty { background: rgba(255, 255, 255, .04); }
+      body.dark .import-schedule-panel { background: #232a2d; }
       .toast-stack { position: fixed; right: 20px; bottom: 20px; z-index: 30; display: grid; gap: 10px; width: min(360px, calc(100vw - 32px)); }
       .web-toast { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 15px 16px; background: var(--card); border: 1px solid var(--line); border-left: 5px solid var(--secondary); border-radius: 14px; box-shadow: 0 18px 40px rgba(15, 23, 42, .18); animation: toast-in .25s ease-out; }
       .toast-content { display: flex; align-items: flex-start; gap: 10px; }
@@ -400,11 +410,22 @@
           <p class="sub" style="margin-bottom: 16px;">Mỗi ô thể hiện môn học theo thứ và tiết.</p>
           <div class="schedule-actions">
             <button id="edit-schedule-button" class="edit-button" type="button">Chỉnh sửa thời khóa biểu</button>
+            <button id="import-schedule-button" class="edit-button" type="button" hidden>Tạo từ ảnh</button>
+            <input id="import-schedule-file" type="file" accept="image/png,image/jpeg,image/webp" hidden />
+          </div>
+          <div id="import-schedule-panel" class="import-schedule-panel" hidden>
+            <p class="sub">Chụp hoặc tải ảnh thời khóa biểu. Máy sẽ đọc chữ và dựng bảng để bạn kiểm tra trước khi lưu.</p>
+            <p id="import-schedule-status" class="sub" role="status"></p>
+            <div class="editor-actions">
+              <button id="import-schedule-save" class="save-button" type="button" hidden>Lưu vào thời khóa biểu</button>
+              <button id="import-schedule-cancel" class="cancel-button" type="button">Bỏ qua</button>
+            </div>
+            <div id="import-schedule-preview" class="import-schedule-preview" aria-live="polite"></div>
           </div>
           <form id="schedule-editor" class="schedule-editor">
             <label>Buổi<select id="editor-session"><option value="morning">Buổi sáng</option><option value="afternoon">Buổi chiều</option></select></label>
             <label>Thứ<select id="editor-day"><option value="2">Thứ 2</option><option value="3">Thứ 3</option><option value="4">Thứ 4</option><option value="5">Thứ 5</option><option value="6">Thứ 6</option><option value="7">Thứ 7</option></select></label>
-            <label>Tiết<select id="editor-period"><option value="1">Tiết 1</option><option value="2">Tiết 2</option><option value="3">Tiết 3</option><option value="4">Tiết 4</option><option value="5">Tiết 5</option></select></label>
+            <label>Tiết<select id="editor-period"><option value="1">Tiết 1</option><option value="2">Tiết 2</option><option value="3">Tiết 3</option><option value="4">Tiết 4</option><option value="5">Tiết 5</option><option value="6">Tiết 6</option><option value="7">Tiết 7</option></select></label>
             <label>Loại tiết<select id="editor-duration"><option value="1">Tiết đơn</option><option value="2">Tiết đôi</option></select></label>
             <label>Môn học
               <select id="editor-subject-select" required>
@@ -454,10 +475,10 @@
 
       <section id="assignments" class="view">
         <div class="card">
-          <h2 class="panel-title">Bài tập cần hoàn thành</h2>
+          <h2 class="panel-title">Báo bài và nhiệm vụ</h2>
           <div class="task-tools">
             <select id="task-filter" aria-label="Lọc nhiệm vụ"><option value="all">Tất cả nhiệm vụ</option><option value="pending">Chưa hoàn thành</option><option value="completed">Đã hoàn thành</option></select>
-            <button id="add-task-button" class="add-task-button" type="button">+ Thêm nhiệm vụ</button>
+            <button id="add-task-button" class="add-task-button" type="button">+ Báo bài mới</button>
           </div>
           <form id="task-editor" class="task-editor">
             <input id="task-title" required placeholder="Tên nhiệm vụ">
@@ -465,6 +486,7 @@
             <input id="task-due-date" required type="date">
             <input id="task-due-time" required type="time" value="23:59" aria-label="Giờ cần hoàn thành">
             <select id="task-priority"><option>Trung bình</option><option>Cao</option><option>Quan trọng</option><option>Thấp</option></select>
+            <textarea id="task-description" maxlength="1000" placeholder="Nội dung hoặc ghi chú báo bài (không bắt buộc)"></textarea>
             <button class="save-button" type="submit">Lưu</button>
             <small style="grid-column:1 / -1;color:var(--muted);">Nhắc trước hạn: 1 ngày, 1 giờ, 10 phút và 5 phút.</small>
           </form>
@@ -959,7 +981,7 @@
         document.getElementById('editor-lecturer').value = '';
         document.getElementById('editor-duration').value = '1';
         const nextPeriod = entry.period + entry.duration;
-        if (nextPeriod <= 5) document.getElementById('editor-period').value = String(nextPeriod);
+        if (nextPeriod <= 7) document.getElementById('editor-period').value = String(nextPeriod);
         if (subjectSelect.value === 'Môn khác') customSubjectInput.focus();
         else document.getElementById('editor-lecturer').focus();
       });
@@ -1001,6 +1023,125 @@
         void loadDashboard().catch((error) => showWebToast('Đã lưu thời khóa biểu', error.message));
       });
 
+      const importScheduleButton = document.getElementById('import-schedule-button');
+      const importScheduleFile = document.getElementById('import-schedule-file');
+      const importSchedulePanel = document.getElementById('import-schedule-panel');
+      const importScheduleStatus = document.getElementById('import-schedule-status');
+      const importSchedulePreview = document.getElementById('import-schedule-preview');
+      const importScheduleSave = document.getElementById('import-schedule-save');
+      const importScheduleCancel = document.getElementById('import-schedule-cancel');
+      let importedScheduleSlots = [];
+
+      const SESSION_LABELS = { morning: 'Buổi sáng', afternoon: 'Buổi chiều' };
+      const DAY_LABELS = { 2: 'Thứ 2', 3: 'Thứ 3', 4: 'Thứ 4', 5: 'Thứ 5', 6: 'Thứ 6', 7: 'Thứ 7' };
+
+      fetch('/api/schedule/import-image/status')
+        .then((response) => response.json())
+        .then((data) => { importScheduleButton.hidden = !data.available; })
+        .catch(() => { importScheduleButton.hidden = true; });
+
+      function closeImportPanel() {
+        importSchedulePanel.hidden = true;
+        importSchedulePreview.innerHTML = '';
+        importScheduleSave.hidden = true;
+        importScheduleFile.value = '';
+        importedScheduleSlots = [];
+      }
+
+      importScheduleButton.addEventListener('click', () => {
+        importSchedulePanel.hidden = false;
+        importScheduleStatus.textContent = 'Chọn ảnh thời khóa biểu cần đọc.';
+        importScheduleFile.click();
+      });
+      importScheduleCancel.addEventListener('click', closeImportPanel);
+
+      function renderImportedSlots(slots) {
+        const grid = {};
+        let maxPeriod = 0;
+        for (const slot of slots) {
+          const key = `${slot.session}|${slot.day}`;
+          grid[key] = grid[key] || {};
+          grid[key][slot.period] = slot;
+          maxPeriod = Math.max(maxPeriod, slot.period);
+        }
+        const table = document.createElement('table');
+        table.className = 'import-schedule-table';
+        table.innerHTML = '<tr><th>Buổi</th><th>Tiết</th>'
+          + Object.values(DAY_LABELS).map((label) => `<th>${label}</th>`).join('') + '</tr>';
+        for (const session of ['morning', 'afternoon']) {
+          for (let period = 1; period <= maxPeriod; period += 1) {
+            const cells = Object.keys(DAY_LABELS).map((day) => {
+              const slot = (grid[`${session}|${day}`] || {})[period];
+              if (!slot) return '<td class="empty"></td>';
+              const lecturer = slot.lecturer ? `<span>${slot.lecturer}</span>` : '';
+              return `<td>${slot.subject}${lecturer}</td>`;
+            }).join('');
+            if (!cells.replace(/<td class="empty"><\/td>/g, '')) continue;
+            // Nhãn buổi chỉ hiện ở tiết đầu tiên có nội dung của buổi đó.
+            const label = table.querySelector(`[data-session="${session}"]`) ? '' : SESSION_LABELS[session];
+            table.insertAdjacentHTML(
+              'beforeend',
+              `<tr><th data-session="${session}">${label}</th><th>${period}</th>${cells}</tr>`,
+            );
+          }
+        }
+        importSchedulePreview.innerHTML = '';
+        importSchedulePreview.appendChild(table);
+      }
+
+      importScheduleFile.addEventListener('change', async () => {
+        const file = importScheduleFile.files[0];
+        if (!file) return;
+        importSchedulePanel.hidden = false;
+        importScheduleStatus.textContent = 'Đang đọc ảnh, vui lòng đợi...';
+        importScheduleSave.hidden = true;
+        importSchedulePreview.innerHTML = '';
+        const form = new FormData();
+        form.append('file', file);
+        try {
+          const response = await fetch('/api/schedule/import-image', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${sessionToken}`, 'X-Username': user.username },
+            body: form,
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data.detail || 'Không đọc được ảnh.');
+          importedScheduleSlots = data.slots || [];
+          importScheduleStatus.textContent = data.message;
+          if (Array.isArray(data.warnings) && data.warnings.length) {
+            importScheduleStatus.textContent += ` Cảnh báo: ${data.warnings.join(' ')}`;
+          }
+          renderImportedSlots(importedScheduleSlots);
+          importScheduleSave.hidden = importedScheduleSlots.length === 0;
+        } catch (error) {
+          importedScheduleSlots = [];
+          importScheduleStatus.textContent = `Không đọc được ảnh: ${error.message}`;
+          importScheduleSave.hidden = true;
+        }
+      });
+
+      importScheduleSave.addEventListener('click', async () => {
+        if (!importedScheduleSlots.length) return;
+        importScheduleSave.disabled = true;
+        try {
+          const response = await fetch('/api/schedule/slots', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sessionToken}` },
+            body: JSON.stringify({ slots: importedScheduleSlots }),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data.detail || 'Vui lòng thử lại.');
+          showWebToast('Đã tạo thời khóa biểu', data.message || `Đã lưu ${importedScheduleSlots.length} tiết học.`);
+          closeImportPanel();
+          showView('schedule');
+          void loadDashboard().catch((error) => showWebToast('Thời khóa biểu', error.message));
+        } catch (error) {
+          showWebToast('Không lưu được thời khóa biểu', error.message);
+        } finally {
+          importScheduleSave.disabled = false;
+        }
+      });
+
       document.getElementById('task-filter').addEventListener('change', (event) => {
         taskFilter = event.target.value;
         renderTasks(assignmentsData);
@@ -1014,6 +1155,7 @@
         const payload = {
           title: document.getElementById('task-title').value.trim(),
           subject: document.getElementById('task-subject').value.trim(),
+          description: document.getElementById('task-description').value.trim(),
           due_date: document.getElementById('task-due-date').value,
           due_time: document.getElementById('task-due-time').value,
           priority: document.getElementById('task-priority').value,
@@ -1321,10 +1463,12 @@
           <div class="task-item">
             <div class="task-content">
               <strong>${task.title}</strong>
-              <div class="meta">${task.subject} · Hạn ${formatTaskDue(task.due_date)} · ${task.priority || 'Trung bình'}</div>
+              <div class="meta">${task.subject} · Hạn ${formatTaskDue(task.due_date)} · ${task.priority || 'Trung bình'} · ${task.status === 'completed' || task.completed ? 'Đã hoàn thành' : 'Đang chờ'}</div>
+              ${task.description ? `<div class="meta">${task.description}</div>` : ''}
             </div>
             <div class="task-actions">
               <button class="task-action complete" type="button" onclick="toggleTask('${task.id}', ${!task.completed})">${task.completed ? 'Bỏ hoàn thành' : 'Hoàn thành'}</button>
+              <button class="task-action" type="button" onclick="showAssignmentHistory('${task.id}', '${String(task.title).replace(/'/g, "\\'")}')">Lịch sử</button>
               <button class="task-action delete" type="button" onclick="deleteTask('${task.id}')">Xóa</button>
             </div>
           </div>
@@ -1354,6 +1498,20 @@
         showWebToast(result.notification?.title || 'Đã cập nhật nhiệm vụ', result.notification?.message || result.message);
         showView('assignments');
         void loadDashboard().catch((error) => showWebToast('Đã cập nhật nhiệm vụ', error.message));
+      }
+
+      async function showAssignmentHistory(taskId, title) {
+        const response = await fetch(`/api/assignments/${encodeURIComponent(taskId)}/events?username=${encodeURIComponent(user.username)}`, {
+          headers: { 'Authorization': `Bearer ${sessionToken}` },
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          showWebToast('Không thể đọc lịch sử', result.detail || 'Vui lòng thử lại.');
+          return;
+        }
+        const labels = { created: 'Đã báo bài', completed: 'Đã hoàn thành', reopened: 'Đã mở lại' };
+        const message = (result.events || []).map((event) => `${labels[event.event_type] || event.event_type} · ${event.created_at}`).join('\n');
+        await window.studySyncConfirm.alert(message || 'Chưa có lịch sử.', `Lịch sử: ${title}`);
       }
 
       async function deleteTask(taskId) {

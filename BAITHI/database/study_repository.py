@@ -12,6 +12,10 @@ from data_storage import data_file
 from db import is_postgres
 from uuid import uuid4
 
+# Một buổi học có tối đa 7 tiết. Trường tiết 6, 7 có trong TKB thật nên
+# không cắt bỏ, nếu không sẽ mất tiết khi tạo thời khóa biểu từ ảnh.
+MAX_PERIOD = 7
+
 
 class StudyRepository:
     """Lưu thời khóa biểu và bài tập.
@@ -93,12 +97,40 @@ class StudyRepository:
                         owner_username TEXT NOT NULL DEFAULT '',
                         title TEXT,
                         subject TEXT,
+                        description TEXT DEFAULT '',
                         due_date TEXT,
                         priority TEXT,
-                        completed INTEGER DEFAULT 0
+                        completed INTEGER DEFAULT 0,
+                        status TEXT DEFAULT 'pending',
+                        created_by TEXT DEFAULT 'student',
+                        created_at TEXT DEFAULT '',
+                        updated_at TEXT DEFAULT ''
                     )
                     """
                 )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS assignment_events (
+                        id TEXT PRIMARY KEY,
+                        assignment_id TEXT NOT NULL,
+                        owner_username TEXT NOT NULL DEFAULT '',
+                        actor_username TEXT NOT NULL DEFAULT '',
+                        event_type TEXT NOT NULL,
+                        note TEXT DEFAULT '',
+                        created_at TEXT NOT NULL
+                    )
+                    """
+                )
+                for column, definition in (
+                    ("description", "TEXT DEFAULT ''"),
+                    ("status", "TEXT DEFAULT 'pending'"),
+                    ("created_by", "TEXT DEFAULT 'student'"),
+                    ("created_at", "TEXT DEFAULT ''"),
+                    ("updated_at", "TEXT DEFAULT ''"),
+                ):
+                    conn.execute(
+                        f"ALTER TABLE assignments ADD COLUMN IF NOT EXISTS {column} {definition}"
+                    )
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS schedule_owner_slot_idx "
                     "ON schedule(owner_username, session, day, period)"
@@ -139,9 +171,27 @@ class StudyRepository:
                     owner_username TEXT NOT NULL DEFAULT '',
                     title TEXT,
                     subject TEXT,
+                    description TEXT DEFAULT '',
                     due_date TEXT,
                     priority TEXT,
-                    completed INTEGER DEFAULT 0
+                    completed INTEGER DEFAULT 0,
+                    status TEXT DEFAULT 'pending',
+                    created_by TEXT DEFAULT 'student',
+                    created_at TEXT DEFAULT '',
+                    updated_at TEXT DEFAULT ''
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS assignment_events (
+                    id TEXT PRIMARY KEY,
+                    assignment_id TEXT NOT NULL,
+                    owner_username TEXT NOT NULL DEFAULT '',
+                    actor_username TEXT NOT NULL DEFAULT '',
+                    event_type TEXT NOT NULL,
+                    note TEXT DEFAULT '',
+                    created_at TEXT NOT NULL
                 )
                 """
             )
@@ -153,6 +203,18 @@ class StudyRepository:
                     conn.execute(
                         f"ALTER TABLE {table} ADD COLUMN owner_username TEXT NOT NULL DEFAULT ''"
                     )
+            assignment_columns = {
+                row["name"] for row in conn.execute("PRAGMA table_info(assignments)").fetchall()
+            }
+            for column, definition in (
+                ("description", "TEXT DEFAULT ''"),
+                ("status", "TEXT DEFAULT 'pending'"),
+                ("created_by", "TEXT DEFAULT 'student'"),
+                ("created_at", "TEXT DEFAULT ''"),
+                ("updated_at", "TEXT DEFAULT ''"),
+            ):
+                if column not in assignment_columns:
+                    conn.execute(f"ALTER TABLE assignments ADD COLUMN {column} {definition}")
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS schedule_owner_slot_idx "
                 "ON schedule(owner_username, session, day, period)"
@@ -193,15 +255,17 @@ class StudyRepository:
         conn.execute(statement, item)
 
     def _insert_assignment_row(self, conn, item: dict[str, Any]) -> None:
-        columns = "id, owner_username, title, subject, due_date, priority, completed"
+        columns = "id, owner_username, title, subject, description, due_date, priority, completed, status, created_by, created_at, updated_at"
         if is_postgres():
-            values = [item["id"], item["owner_username"], item["title"], item["subject"], item["due_date"], item["priority"], item["completed"]]
-            placeholders = ", ".join(["%s"] * 7)
+            values = [item[column] for column in columns.split(", ")]
+            placeholders = ", ".join(["%s"] * len(values))
             statement = (
                 f"INSERT INTO assignments ({columns}) VALUES ({placeholders}) "
                 "ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, "
-                "subject=EXCLUDED.subject, due_date=EXCLUDED.due_date, "
-                "priority=EXCLUDED.priority, completed=EXCLUDED.completed"
+                "subject=EXCLUDED.subject, description=EXCLUDED.description, "
+                "due_date=EXCLUDED.due_date, priority=EXCLUDED.priority, "
+                "completed=EXCLUDED.completed, status=EXCLUDED.status, "
+                "updated_at=EXCLUDED.updated_at"
             )
             conn.execute(statement, values)
             return
@@ -275,9 +339,14 @@ class StudyRepository:
                     ).strip().lower(),
                     "title": item.get("title", ""),
                     "subject": item.get("subject", ""),
+                    "description": item.get("description", ""),
                     "due_date": item.get("due_date", ""),
                     "priority": item.get("priority", "Trung bình"),
                     "completed": 1 if item.get("completed") else 0,
+                    "status": item.get("status", "completed" if item.get("completed") else "pending"),
+                    "created_by": item.get("created_by", "student"),
+                    "created_at": item.get("created_at", ""),
+                    "updated_at": item.get("updated_at", ""),
                 })
 
     def _new_schedule_id(self) -> str:
@@ -353,8 +422,8 @@ class StudyRepository:
                     raise ValueError("Buổi học không hợp lệ.")
                 if day not in {"2", "3", "4", "5", "6", "7"}:
                     raise ValueError("Thứ học không hợp lệ.")
-                if period not in range(1, 6):
-                    raise ValueError("Tiết học phải từ 1 đến 5.")
+                if period not in range(1, MAX_PERIOD + 1):
+                    raise ValueError(f"Tiết học phải từ 1 đến {MAX_PERIOD}.")
                 if not subject:
                     raise ValueError("Tên môn học không được để trống.")
 
@@ -482,18 +551,79 @@ class StudyRepository:
             item["completed"] = bool(item.get("completed"))
         return assignments
 
-    def add_assignment(self, title: str, subject: str, due_date: str, priority: str, username: str) -> dict[str, Any]:
+    def _insert_assignment_event(
+        self,
+        conn,
+        assignment: dict[str, Any],
+        event_type: str,
+        note: str,
+        actor_username: str | None = None,
+    ) -> None:
+        event = {
+            "id": f"assignment-event-{uuid4().hex}",
+            "assignment_id": assignment["id"],
+            "owner_username": assignment["owner_username"],
+            "actor_username": str(actor_username or assignment["owner_username"]).strip().lower(),
+            "event_type": event_type,
+            "note": note,
+            "created_at": datetime.now().astimezone().isoformat(),
+        }
+        columns = "id, assignment_id, owner_username, actor_username, event_type, note, created_at"
+        if is_postgres():
+            conn.execute(
+                f"INSERT INTO assignment_events ({columns}) VALUES ({', '.join(['%s'] * 7)})",
+                [event[column] for column in columns.split(", ")],
+            )
+            return
+        conn.execute(
+            f"INSERT INTO assignment_events ({columns}) VALUES ({', '.join(':' + column for column in columns.split(', '))})",
+            event,
+        )
+
+    def get_assignment_events(self, assignment_id: str, username: str) -> list[dict[str, Any]]:
+        owner_username = str(username or "").strip().lower()
+        if not owner_username:
+            return []
+        with self._lock, self._connect() as conn:
+            return self._query(
+                conn,
+                """
+                SELECT event_type, note, actor_username, created_at
+                FROM assignment_events
+                WHERE assignment_id=:assignment_id AND owner_username=:owner
+                ORDER BY created_at
+                """,
+                {"assignment_id": assignment_id, "owner": owner_username},
+            )
+
+    def add_assignment(
+        self,
+        title: str,
+        subject: str,
+        due_date: str,
+        priority: str,
+        username: str,
+        description: str = "",
+        created_by: str = "student",
+    ) -> dict[str, Any]:
+        now = datetime.now().astimezone().isoformat()
         item = {
             "id": f"task-{uuid4().hex}",
             "owner_username": str(username or "").strip().lower(),
             "title": title,
             "subject": subject,
+            "description": description,
             "due_date": due_date,
             "priority": priority,
             "completed": 0,
+            "status": "pending",
+            "created_by": created_by,
+            "created_at": now,
+            "updated_at": now,
         }
         with self._lock, self._connect() as conn:
             self._insert_assignment_row(conn, item)
+            self._insert_assignment_event(conn, item, "created", "")
             if is_postgres():
                 conn.commit()
         item["completed"] = False
@@ -503,13 +633,19 @@ class StudyRepository:
         owner_username = str(username or "").strip().lower()
         if not owner_username:
             return False
+        now = datetime.now().astimezone().isoformat()
         with self._lock, self._connect() as conn:
             cursor = conn.execute(
-                "UPDATE assignments SET completed=%s WHERE id=%s AND owner_username=%s"
+                "UPDATE assignments SET completed=%s, status=%s, updated_at=%s WHERE id=%s AND owner_username=%s"
                 if is_postgres() else
-                "UPDATE assignments SET completed=? WHERE id=? AND owner_username=?",
-                (1 if completed else 0, assignment_id, owner_username),
+                "UPDATE assignments SET completed=?, status=?, updated_at=? WHERE id=? AND owner_username=?",
+                (1 if completed else 0, "completed" if completed else "pending", now, assignment_id, owner_username),
             )
+            if cursor.rowcount:
+                assignment = {"id": assignment_id, "owner_username": owner_username}
+                self._insert_assignment_event(
+                    conn, assignment, "completed" if completed else "reopened", ""
+                )
             if is_postgres():
                 conn.commit()
             return cursor.rowcount > 0

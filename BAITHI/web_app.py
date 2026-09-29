@@ -9,7 +9,7 @@ from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
 
-from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query, Request
+from fastapi import BackgroundTasks, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -54,6 +54,12 @@ from backend.notification_service import (
     set_reminder_preferences,
 )
 from bus.study_bus import StudyBus
+from backend.schedule_ocr import (
+    MAX_TIMETABLE_IMAGE_BYTES,
+    TimetableImageError,
+    extract_timetable_slots,
+    timetable_ocr_available,
+)
 from owner_auth import (
     authenticate_owner,
     create_owner_token,
@@ -207,6 +213,7 @@ class ScheduleSlotBulkPayload(BaseModel):
 class AssignmentPayload(BaseModel):
     title: str
     subject: str
+    description: str = ""
     due_date: date
     due_time: time = time(23, 59)
     priority: str = "Trung bình"
@@ -694,7 +701,7 @@ def owner_login(payload: OwnerLoginPayload):
     if not authenticate_owner(payload.username, payload.password):
         raise HTTPException(status_code=401, detail="Thông tin đăng nhập owner không đúng.")
     try:
-        token = create_owner_token()
+        token = create_owner_token(payload.username.strip())
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {"token": token, "username": payload.username.strip(), "role": "owner"}
@@ -1093,6 +1100,50 @@ def update_schedule_slot(
     }
 
 
+@app.post("/api/schedule/import-image")
+async def import_schedule_from_image(
+    file: UploadFile = File(...),
+    authorization: str | None = Header(default=None),
+    x_username: str | None = Header(default=None, alias="X-Username"),
+):
+    """Doc anh thoi khoa bieu va tra ve cac tiet de nguoi dung xem truoc.
+
+    Khong ghi thang vao thoi khoa bieu. Nguoi dung phai xem lai roi bam luu,
+    vi doc may co the nham o trong.
+    """
+    username = str(x_username or "").strip()
+    _require_user_session(authorization, username, {"student"})
+    if not timetable_ocr_available():
+        raise HTTPException(
+            status_code=503,
+            detail="Máy chủ chưa cài thư viện đọc ảnh. Chạy: pip install -r requirements.txt",
+        )
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Ảnh rỗng. Hãy chọn ảnh thời khóa biểu.")
+    # Gioi han kich thuoc de tranh doc anh qua lon lam treo may chu.
+    if len(raw) > MAX_TIMETABLE_IMAGE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail="Ảnh vượt quá dung lượng cho phép. Hãy chụp gọn vùng thời khóa biểu.",
+        )
+    try:
+        slots, warnings = extract_timetable_slots(raw)
+    except TimetableImageError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "message": f"Đã đọc {len(slots)} tiết học. Kiểm tra lại rồi bấm Lưu vào thời khóa biểu.",
+        "warnings": warnings,
+        "slots": [{**slot, "username": username} for slot in slots],
+    }
+
+
+@app.get("/api/schedule/import-image/status")
+def schedule_image_import_status(authorization: str | None = Header(default=None)):
+    """Cho giao dien biet truoc khi nen hien nut tai anh."""
+    return {"available": timetable_ocr_available()}
+
+
 @app.post("/api/schedule/slots")
 def bulk_update_schedule_slots(
     payload: ScheduleSlotBulkPayload,
@@ -1175,7 +1226,7 @@ def create_assignment(
     try:
         item = StudyBus().add_assignment(
             payload.title, payload.subject, payload.due_date, payload.priority,
-            payload.username or "", payload.due_time,
+            payload.username or "", payload.due_time, payload.description,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1189,6 +1240,19 @@ def create_assignment(
             "/student#assignments",
         )
     return {"message": "Đã thêm nhiệm vụ.", "assignment": item}
+
+
+@app.get("/api/assignments/{assignment_id}/events")
+def assignment_events(
+    assignment_id: str,
+    username: str = Query(...),
+    authorization: str | None = Header(default=None),
+):
+    _require_user_session(authorization, username, {"student"})
+    study = StudyBus()
+    if not any(item.get("id") == assignment_id for item in study.assignments(username)):
+        raise HTTPException(status_code=404, detail="Không tìm thấy nhiệm vụ.")
+    return {"events": study.assignment_events(assignment_id, username)}
 
 
 @app.patch("/api/assignments/{assignment_id}")

@@ -56,6 +56,25 @@ def test_schedule_and_assignments_are_isolated_per_student(tmp_path):
     assert len(repository.get_schedule("student-a")) == 2
 
 
+def test_assignment_history_records_creation_and_completion_per_student(tmp_path):
+    repository = StudyRepository(
+        file_path=tmp_path / "study_data.json",
+        db_path=tmp_path / "studysync.sqlite3",
+    )
+
+    assignment = repository.add_assignment(
+        "Bài kiểm tra", "Toán", "2026-10-01", "Cao", "student-a", "Ôn chương 1"
+    )
+    assert assignment["description"] == "Ôn chương 1"
+    assert assignment["status"] == "pending"
+    assert [event["event_type"] for event in repository.get_assignment_events(assignment["id"], "student-a")] == ["created"]
+
+    assert repository.set_assignment_completed(assignment["id"], True, "student-a")
+    events = repository.get_assignment_events(assignment["id"], "student-a")
+    assert [event["event_type"] for event in events] == ["created", "completed"]
+    assert repository.get_assignment_events(assignment["id"], "student-b") == []
+
+
 def test_existing_database_schema_migrates_records_without_exposing_them(tmp_path, monkeypatch):
     db_path = tmp_path / "existing.sqlite3"
     file_path = tmp_path / "study_data.json"

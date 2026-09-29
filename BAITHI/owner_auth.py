@@ -9,9 +9,25 @@ import time
 from uuid import uuid4
 
 from data_storage import backup_critical_file, data_file, write_json_atomic
+from db import load_document
 
 
 TOKEN_TTL_SECONDS = 8 * 60 * 60
+ADMIN_ACCOUNTS_KEY = "admin_accounts"
+DEFAULT_ADMIN_ACCOUNTS = [
+    {
+        "username": "gvLanAnh",
+        "password_hash": "pbkdf2_sha256:310000:pae9o90hiYDxCM6CLIiGUw:CHdeqar4RmaNB9LT8Kk_ipz8bJlzAcKsZCwTAlAKqu4",
+        "role": "owner",
+        "is_active": True,
+    },
+    {
+        "username": "Chithien_owner",
+        "password_hash": "pbkdf2_sha256:310000:TnLGIGYheSIsqNaOaoIGfw:iVZoTt1dPBA35EXu7FoEfa1G3C37dy8wp0FskqkhB48",
+        "role": "owner",
+        "is_active": True,
+    },
+]
 
 
 def _b64encode(value: bytes) -> str:
@@ -20,6 +36,41 @@ def _b64encode(value: bytes) -> str:
 
 def _b64decode(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+
+
+def _admin_accounts() -> list[dict[str, object]]:
+    accounts = load_document(ADMIN_ACCOUNTS_KEY, DEFAULT_ADMIN_ACCOUNTS, "tài khoản admin")
+    if not isinstance(accounts, list):
+        return []
+    return [account for account in accounts if isinstance(account, dict)]
+
+
+def _find_admin(username: str) -> dict[str, object] | None:
+    normalized = str(username or "").strip().casefold()
+    return next(
+        (
+            account
+            for account in _admin_accounts()
+            if str(account.get("username", "")).strip().casefold() == normalized
+            and account.get("is_active", True) is not False
+        ),
+        None,
+    )
+
+
+def _verify_admin_password(password: str, encoded_hash: str) -> bool:
+    try:
+        algorithm, iterations_text, salt_text, digest_text = encoded_hash.split(":", 3)
+        if algorithm != "pbkdf2_sha256":
+            return False
+        salt = _b64decode(salt_text)
+        expected = _b64decode(digest_text)
+        actual = hashlib.pbkdf2_hmac(
+            "sha256", str(password or "").encode("utf-8"), salt, int(iterations_text)
+        )
+        return hmac.compare_digest(actual, expected)
+    except (ValueError, TypeError):
+        return False
 
 
 def authenticate_owner(username: str, password: str) -> bool:
@@ -31,7 +82,10 @@ def authenticate_owner(username: str, password: str) -> bool:
         str(username or "").strip().casefold(), expected_username.casefold()
     )
     password_matches = hmac.compare_digest(str(password or ""), expected_password)
-    return username_matches and password_matches
+    if username_matches and password_matches:
+        return True
+    admin = _find_admin(username)
+    return bool(admin and _verify_admin_password(password, str(admin.get("password_hash", ""))))
 
 
 def owner_configuration_error() -> str | None:
@@ -105,12 +159,12 @@ def verify_user_token(token: str, username: str, role: str | None = None, sessio
         return False
 
 
-def create_owner_token() -> str:
+def create_owner_token(username: str | None = None) -> str:
     secret = _get_user_session_secret()
     if len(secret) < 32:
         raise RuntimeError("STUDYSYNC_SESSION_SECRET phải có ít nhất 32 ký tự.")
     payload = _b64encode(json.dumps({
-        "sub": os.environ.get("OWNER_USERNAME", "").strip(),
+        "sub": str(username or os.environ.get("OWNER_USERNAME", "")).strip(),
         "role": "owner",
         "exp": int(time.time()) + TOKEN_TTL_SECONDS,
     }, separators=(",", ":")).encode("utf-8"))
@@ -134,10 +188,12 @@ def verify_owner_token(token: str) -> bool:
         if not hmac.compare_digest(supplied_signature, expected_signature):
             return False
         payload = json.loads(_b64decode(payload_part).decode("utf-8"))
-        return (
-            payload.get("role") == "owner"
-            and payload.get("sub") == os.environ.get("OWNER_USERNAME", "").strip()
-            and int(payload.get("exp", 0)) > int(time.time())
-        )
+        username = str(payload.get("sub", "")).strip()
+        configured_owner = os.environ.get("OWNER_USERNAME", "").strip()
+        valid_identity = (
+            bool(configured_owner)
+            and username.casefold() == configured_owner.casefold()
+        ) or _find_admin(username) is not None
+        return payload.get("role") == "owner" and valid_identity and int(payload.get("exp", 0)) > int(time.time())
     except (ValueError, TypeError, json.JSONDecodeError, UnicodeDecodeError):
         return False

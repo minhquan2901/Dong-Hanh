@@ -159,6 +159,7 @@
         Mật khẩu
         <input id="owner-password" type="password" autocomplete="current-password" required />
       </label>
+      <label class="remember-login"><input id="owner-remember" type="checkbox" checked /> Ghi nhớ đăng nhập trên thiết bị này</label>
       <button class="primary" type="submit">Đăng nhập</button>
       <p class="error" id="login-error" role="alert"></p>
     </form>
@@ -315,7 +316,10 @@
   <script>
     const tokenKey = 'study_sync_owner_token';
     const ownerUsernameKey = 'study_sync_owner_username';
-    let ownerToken = sessionStorage.getItem(tokenKey) || '';
+    const rememberLogin = document.getElementById('owner-remember');
+    const rememberedToken = localStorage.getItem(tokenKey) || '';
+    const sessionToken = sessionStorage.getItem(tokenKey) || '';
+    let ownerToken = rememberedToken || sessionToken;
     let managedUsers = [];
     let reportItems = [];
     let currentReportFilter = 'all';
@@ -352,6 +356,19 @@
       return result;
     }
 
+    function storedOwnerUsername() {
+      return localStorage.getItem(ownerUsernameKey)
+        || sessionStorage.getItem(ownerUsernameKey)
+        || '';
+    }
+
+    function clearOwnerSession() {
+      localStorage.removeItem(tokenKey);
+      localStorage.removeItem(ownerUsernameKey);
+      sessionStorage.removeItem(tokenKey);
+      sessionStorage.removeItem(ownerUsernameKey);
+    }
+
     async function loadOwnerDashboard() {
       const [overview, usersResult, reportsResult, healthData, usernameBot] = await Promise.all([
         ownerRequest('/api/owner/overview'),
@@ -373,7 +390,7 @@
       loginPanel.hidden = true;
       appPanel.hidden = false;
       sessionBar.hidden = false;
-      document.getElementById('owner-name').textContent = sessionStorage.getItem(ownerUsernameKey) || 'Owner';
+      document.getElementById('owner-name').textContent = storedOwnerUsername() || 'Owner';
       document.getElementById('owner-greeting').hidden = false;
       document.getElementById('sidebar-backend').textContent = healthData.backend || 'Chưa rõ';
     }
@@ -702,8 +719,12 @@
         const result = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(result.detail || 'Đăng nhập thất bại.');
         ownerToken = result.token;
-        sessionStorage.setItem(tokenKey, ownerToken);
-        sessionStorage.setItem(ownerUsernameKey, result.username || document.getElementById('owner-username').value.trim());
+        const storage = rememberLogin.checked ? localStorage : sessionStorage;
+        const otherStorage = rememberLogin.checked ? sessionStorage : localStorage;
+        otherStorage.removeItem(tokenKey);
+        otherStorage.removeItem(ownerUsernameKey);
+        storage.setItem(tokenKey, ownerToken);
+        storage.setItem(ownerUsernameKey, result.username || document.getElementById('owner-username').value.trim());
         await loadOwnerDashboard();
       } catch (error) {
         errorText.textContent = error.message;
@@ -711,8 +732,7 @@
     });
 
     document.getElementById('logout-button').addEventListener('click', () => {
-      sessionStorage.removeItem(tokenKey);
-      sessionStorage.removeItem(ownerUsernameKey);
+      clearOwnerSession();
       ownerToken = '';
       appPanel.hidden = true;
       sessionBar.hidden = true;
@@ -763,14 +783,14 @@
       }
     });
 
-    if (ownerToken && !sessionStorage.getItem(ownerUsernameKey)) {
-      sessionStorage.removeItem(tokenKey);
+    if (ownerToken && !storedOwnerUsername()) {
+      clearOwnerSession();
       ownerToken = '';
     }
 
     if (ownerToken) {
       loadOwnerDashboard().catch((error) => {
-        sessionStorage.removeItem(tokenKey);
+        clearOwnerSession();
         ownerToken = '';
         document.getElementById('login-error').textContent = error.message;
       });

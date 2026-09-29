@@ -20,6 +20,7 @@
 - `bus/study_bus.py`: nghiệp vụ lịch học, bài tập và thông báo.
 - `database/study_repository.py`: lưu lịch/bài tập trong `data/study_data.json`.
 - `reminder_worker.py`: tiến trình riêng gửi nhắc hạn bài và nhắc lịch học.
+- `backend/schedule_ocr.py`: đọc ảnh thời khóa biểu và suy ra các tiết học.
 
 ## UI/UX và kiến trúc
 
@@ -67,6 +68,23 @@ Tính năng AI đang tạm tắt. Không cần API key để chạy StudySync.
 3. Truy cập [share.streamlit.io](https://share.streamlit.io), đăng nhập GitHub.
 4. Chọn repository, branch và file chính `parent_app.py` nếu deploy bản Streamlit.
 5. Bấm **Deploy**. Streamlit sẽ cấp một đường link công khai cho website.
+
+## Tạo thời khóa biểu từ ảnh
+
+Trong ô **Thời khóa biểu** có nút **Tạo từ ảnh**. Bấm nút, chọn ảnh thời khóa biểu, máy sẽ đọc chữ và dựng bảng tiết học để bạn kiểm tra. Chỉ khi bấm **Lưu vào thời khóa biểu** thì dữ liệu mới được ghi, nên có thể sửa trước khi lưu.
+
+Máy đọc ảnh bằng `rapidocr-onnxruntime` và `opencv`, chạy hoàn toàn offline, không cần API key. Cách hoạt động:
+
+1. Nhận ra các cột **Thứ 2** đến **Thứ 7** trên ảnh.
+2. Tìm nhãn **SÁNG** / **CHIỀU** để tách hai bảng.
+3. Gom chữ theo ô, tách theo dấu `-` thành môn học và giáo viên.
+4. Chuẩn hoá tên môn về dạng gọn (ví dụ `NGU' VÃN` → `Ngữ văn`).
+
+Nút này tự ẩn nếu máy chủ chưa cài thư viện đọc ảnh, vì vậy khi deploy cần chạy `pip install -r requirements.txt`.
+
+**Ảnh nên chụp như thế nào:** chụp thẳng, đủ cả bảng, có đủ tiêu đề Thứ 2 đến Thứ 7, chữ rõ và không bị che. Ảnh chụp nghiêng hoặc tối thường đọc sai nhiều ô, nên luôn kiểm tra bảng xem trước.
+
+Kiểm thử trên ảnh mô phỏng: `python tools/make_sample_timetable.py` rồi `python tools/ocr_probe.py`.
 
 ## Push notification trên máy tính và điện thoại
 
