@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from datetime import date
 
-from auth_service import register_user, rename_user_account
+import pytest
+
+from auth_service import authenticate_user, register_user, rename_user_account
 from fastapi.testclient import TestClient
 from bus.study_bus import StudyBus
 from username_policy import (
@@ -19,10 +21,25 @@ from web_app import app
 def test_username_policy_accepts_only_expected_format():
     assert validate_username("An_Nguyen11") == (True, "")
     assert not validate_username("1nguyen11")[0]
-    assert not validate_username("an.nguyen")[0]
+    assert not validate_username("an@nguyen")[0]
     assert not validate_username("qwerty")[0]
     assert not validate_username("admin_01")[0]
     assert not validate_username("aaaaaa")[0]
+
+
+def test_username_allows_vietnamese_and_spaces():
+    """Tên tieng Viet co dau va khoang trang phai duoc chap nhan."""
+    for name in ["Thanh Mai", "Nguyễn Văn An", "Đặng Thu Hà", "Ngô Thị Mai"]:
+        valid, message = validate_username(name)
+        assert valid is True, f"{name} bi tu choi: {message}"
+
+
+def test_username_rejects_bad_spacing_and_symbols():
+    assert not validate_username(" ThanhMai")[0]
+    assert not validate_username("ThanhMai ")[0]
+    assert not validate_username("Thanh  Mai")[0]
+    assert not validate_username("Thanh/Mai")[0]
+    assert not validate_username("Thanh-Mai")[0]
 
 
 def test_class_policy_accepts_only_grades_six_through_nine():
@@ -56,7 +73,8 @@ def test_identity_scan_tracks_violations_and_resolves_fixed_user(monkeypatch):
 
     first = scan_registered_users([user])
     assert first["violation_count"] == 1
-    assert len(identity_violations(user)) == 2
+    # "old.name" van hop le, chi con loai 10A1 la sai.
+    assert len(identity_violations(user)) == 1
 
     fixed = {**user, "username": "an_nguyen", "class_name": "8/2"}
     second = scan_registered_users([fixed])
@@ -155,3 +173,24 @@ def test_legacy_user_can_update_identity_and_keep_study_data(tmp_path, monkeypat
     dashboard = client.get("/api/dashboard/student?username=student_new", headers=new_headers)
     assert dashboard.status_code == 200
     assert [task["title"] for task in dashboard.json()["assignments"]] == ["Bài giữ lại"]
+
+
+
+def test_equivalent_usernames_are_treated_as_duplicate(tmp_path, monkeypatch):
+    """Bỏ dấu/khoảng trắc phải ra cùng một người, không tạo được tài khoản trùng."""
+    monkeypatch.setattr("auth_service.USERS_FILE", tmp_path / "users.json")
+    register_user("Thanh Mai", "Password1", "student", "Thanh Mai", "8/1")
+
+    for duplicate in ["thanh mai", "ThanhMai", "thanh_mai", "thanhmai"]:
+        with pytest.raises(ValueError, match="đã tồn tại"):
+            register_user(duplicate, "Password1", "student", "Khác", "8/1")
+
+
+def test_login_accepts_name_with_or_without_diacritics(tmp_path, monkeypatch):
+    monkeypatch.setattr("auth_service.USERS_FILE", tmp_path / "users.json")
+    register_user("Thanh Mai", "Password1", "parent", "Thanh Mai")
+
+    assert authenticate_user("thanh mai", "Password1") is not None
+    assert authenticate_user("thanhmai", "Password1") is not None
+    assert authenticate_user("THANHMAI", "Password1") is not None
+    assert authenticate_user("nguoi_khac", "Password1") is None

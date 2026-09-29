@@ -9,9 +9,17 @@ from db import load_document, save_document
 
 POLICY_DOCUMENT = "username_policy"
 MIN_USERNAME_LENGTH = 6
-MAX_USERNAME_LENGTH = 20
+MAX_USERNAME_LENGTH = 40
 VALID_CLASS_PATTERN = re.compile(r"^([6-9])\s*/\s*([1-3])$")
-USERNAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]{5,19}$")
+# Cho phep chu co dau va khoang trang de nguoi dung dung chu tieng Viet.
+# Ky tu dac biet (@, ., -, /) van bi chan; chi cho phep chu, so, dau gach duoi,
+# dau cham va khoang trang giua cac tu.
+USERNAME_PATTERN = re.compile(
+    r"^\D[\wÀ-ỹ .,]{4,38}$",
+    re.UNICODE,
+)
+# Khoang trang khong duoc o dau/cuoi va khong lien nhau.
+BROKEN_WHITESPACE = re.compile(r"^\s|\s$|\s{2,}")
 RESERVED_USERNAMES = {
     "admin",
     "administrator",
@@ -56,10 +64,12 @@ def _contains_disallowed_term(value: str) -> bool:
 
 
 def validate_username(username: str) -> tuple[bool, str]:
-    value = str(username or "").strip()
+    # Khong strip() o day: khoang trang o dau/cuoi phai bi bao loi thay vi
+    # bi im lang cat bo, nguoi dung se khong hieu vi sao ten khong chap nhan.
+    value = str(username or "")
     # Kiem tra ten danh cho he thong truoc, neu biet truoc se bao loi chinh xac
     # thay vi bao nhieu ky tu (vi du "admin" bi bao sai la quá ngan).
-    folded_for_reserved = _fold_vietnamese(value).replace("_", "")
+    folded_for_reserved = _fold_vietnamese(value).replace("_", "").replace(" ", "")
     if (
         value.casefold() in RESERVED_USERNAMES
         or folded_for_reserved in RESERVED_USERNAMES
@@ -67,14 +77,23 @@ def validate_username(username: str) -> tuple[bool, str]:
     ):
         return False, "Tên đăng nhập này dành riêng cho hệ thống."
     if not MIN_USERNAME_LENGTH <= len(value) <= MAX_USERNAME_LENGTH:
-        return False, "Tên đăng nhập phải dài từ 6 đến 20 ký tự."
+        return False, f"Tên đăng nhập phải dài từ {MIN_USERNAME_LENGTH} đến {MAX_USERNAME_LENGTH} ký tự."
+    if BROKEN_WHITESPACE.search(value):
+        return False, "Tên đăng nhập không được có khoảng trắng ở đầu, cuối hoặc liên tiếp."
     if not USERNAME_PATTERN.fullmatch(value):
-        return False, "Tên đăng nhập chỉ dùng chữ không dấu, số và dấu gạch dưới; phải bắt đầu bằng chữ cái."
+        return False, (
+            "Tên đăng nhập chỉ dùng chữ, số, dấu gạch dưới, dấu chấm và khoảng trắng; "
+            "phải bắt đầu bằng chữ cái."
+        )
 
-    compact = value.casefold().replace("_", "")
+    compact = value.casefold().replace("_", "").replace(" ", "").replace(".", "")
     if value.casefold() in SPAM_USERNAMES or any(spam in compact for spam in SPAM_USERNAMES):
         return False, "Tên đăng nhập quá phổ biến hoặc có dạng gõ bừa."
     if len(set(value.casefold())) == 1 or re.search(r"(.)\1{5,}", value.casefold()):
+        return False, "Không được dùng một ký tự lặp lại làm tên đăng nhập."
+    # Trùng ký tự khi bỏ dấu và khoảng trắng: "Thanh Mai" va "thanhmai" la mot nguoi.
+    letters_only = _fold_vietnamese(re.sub(r"[_\s.]", "", value))
+    if re.search(r"(.)\1{4,}", letters_only):
         return False, "Không được dùng một ký tự lặp lại làm tên đăng nhập."
     if _contains_disallowed_term(value):
         return False, "Tên đăng nhập có từ ngữ không phù hợp môi trường học đường."

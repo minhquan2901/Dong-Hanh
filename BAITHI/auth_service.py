@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import hashlib
 import hmac
+import re
 import secrets
 from datetime import datetime
 from threading import RLock
@@ -151,14 +152,13 @@ def rename_user_account(current_username: str, new_username: str, full_name: str
     with USERS_LOCK:
         users = load_users()
         current = next(
-            (user for user in users if str(user.get("username", "")).casefold() == old_name.casefold()),
+            (user for user in users if usernames_match(str(user.get("username", "")), old_name)),
             None,
         )
         if current is None:
             raise ValueError("Không tìm thấy tài khoản.")
         if any(
-            str(user.get("username", "")).casefold() == next_name.casefold()
-            and user is not current
+            usernames_match(str(user.get("username", "")), next_name) and user is not current
             for user in users
         ):
             raise ValueError("Tên đăng nhập đã tồn tại.")
@@ -191,7 +191,7 @@ def get_user_by_username(username: str) -> dict[str, Any] | None:
     if not user_name:
         return None
     for user in load_users():
-        if str(user.get("username", "")).strip().lower() == user_name.lower():
+        if usernames_match(str(user.get("username", "")), user_name):
             return user
     return None
 
@@ -363,6 +363,23 @@ def update_linked_student(
     raise ValueError("Không tìm thấy học sinh.")
 
 
+def normalize_username(value: str) -> str:
+    """Bỏ dấu, bỏ khoảng trắng, gạch dưới và dấu chấm; hạ chữ thường.
+
+    Dùng để so sánh tên đăng nhập: "Thanh Mai", "thanhmai" và "thanh_mai"
+    phải được xem là cùng một người, tránh tạo tài khoản trùng.
+    """
+    import unicodedata
+
+    text = re.sub(r"[_\s.]", "", str(value or ""))
+    decomposed = unicodedata.normalize("NFKD", text.casefold())
+    return "".join(char for char in decomposed if not unicodedata.combining(char))
+
+
+def usernames_match(left: str, right: str) -> bool:
+    return normalize_username(left) == normalize_username(right)
+
+
 def register_user(
     username: str,
     password: str,
@@ -388,7 +405,7 @@ def register_user(
 
     with USERS_LOCK:
         users = load_users()
-        if any(str(item.get("username", "")).strip().lower() == clean_username.lower() for item in users):
+        if any(usernames_match(str(item.get("username", "")), clean_username) for item in users):
             raise ValueError("Tên đăng nhập đã tồn tại.")
 
         if clean_role == "student" and not str(student_id).strip():
