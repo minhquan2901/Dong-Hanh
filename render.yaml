@@ -23,6 +23,9 @@ services:
     startCommand: uvicorn web_app:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
+      # rapidocr-onnxruntime chưa có wheel tương thích với Python mới hơn.
+      - key: PYTHON_VERSION
+        value: "3.11.9"
       - key: STUDYSYNC_DATABASE_URL
         sync: false
       - key: STUDYSYNC_SESSION_SECRET
@@ -41,6 +44,8 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: python reminder_worker.py
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
       - key: STUDYSYNC_DATABASE_URL
         sync: false
       - key: FCM_ENABLED
