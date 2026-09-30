@@ -196,7 +196,13 @@ STUDYSYNC_SESSION_SECRET    = <chuỗi ngẫu nhiên từ 32 ký tự trở lên
 STUDYSYNC_OWNER_SECRET      = <chuỗi ngẫu nhiên từ 32 ký tự trở lên>
 OWNER_USERNAME              = <tên đăng nhập quản trị>
 OWNER_PASSWORD              = <mật khẩu quản trị>
+OCR_SERVICE_SECRET          = <chuỗi ngẫu nhiên giống nhau ở web và studysync-ocr>
 ```
+
+OCR thời khóa biểu chạy ở service Render riêng `studysync-ocr`, không chạy trong
+Web Service chính. `OCR_SERVICE_URL` được nối tự động từ `render.yaml`; cần đặt
+`OCR_SERVICE_SECRET` cùng một giá trị cho hai service. Nhờ vậy lỗi hoặc thiếu bộ
+nhớ ở OCR không làm sập website chính.
 
 `STUDYSYNC_SESSION_SECRET` phải cố định. Nếu để ứng dụng tự sinh khóa ở `session_signing_secret.json` trong thư mục dữ liệu, thì trên gói Free khóa đó mất sau mỗi lần deploy và mọi phiên đăng nhập đang mở đều bị đăng xuất.
 

@@ -30,9 +30,32 @@ services:
         sync: false
       - key: STUDYSYNC_SESSION_SECRET
         sync: false
+      # Web chi proxy anh sang OCR service, khong nap model OCR trong RAM web.
+      - key: OCR_SERVICE_URL
+        fromService:
+          type: web
+          name: studysync-ocr
+          property: host
+      - key: OCR_SERVICE_SECRET
+        sync: false
       # Tiến trình web không tự gửi nhắc nữa; chạy đúng một worker riêng.
       - key: REMINDER_TICK_ENABLED
         value: "false"
+
+  # OCR chạy tách khỏi web để model ONNX không làm sập service chính.
+  - type: web
+    name: studysync-ocr
+    runtime: python
+    plan: free
+    rootDir: BAITHI
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.ocr_server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: OCR_SERVICE_SECRET
+        sync: false
 
   # Worker nhắc thông báo. Chỉ cần một instance vì khoá chống gửi trùng
   # nằm ở tầng dữ liệu, nên thêm worker cũng không gửi lặp.

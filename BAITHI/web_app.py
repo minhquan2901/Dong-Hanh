@@ -5,6 +5,7 @@ import secrets
 import threading
 import time
 import traceback
+import requests
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
@@ -91,6 +92,9 @@ STATIC_DIR.mkdir(parents=True, exist_ok=True)
 app = FastAPI(title="StudySync Unified App")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(ROOT / "templates"))
+
+OCR_SERVICE_URL = os.getenv("OCR_SERVICE_URL", "").strip().rstrip("/")
+OCR_SERVICE_SECRET = os.getenv("OCR_SERVICE_SECRET", "").strip()
 
 _REMINDER_THREAD: threading.Thread | None = None
 _REMINDER_STOP = threading.Event()
@@ -1110,7 +1114,7 @@ async def import_schedule_from_image(
     """
     username = str(x_username or "").strip()
     _require_user_session(authorization, username, {"student"})
-    if not timetable_ocr_available():
+    if not OCR_SERVICE_URL and not timetable_ocr_available():
         raise HTTPException(
             status_code=503,
             detail="Máy chủ chưa cài thư viện đọc ảnh. Chạy: pip install -r requirements.txt",
@@ -1124,10 +1128,26 @@ async def import_schedule_from_image(
             status_code=413,
             detail="Ảnh vượt quá dung lượng cho phép. Hãy chụp gọn vùng thời khóa biểu.",
         )
-    try:
-        slots, warnings = extract_timetable_slots(raw)
-    except TimetableImageError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if OCR_SERVICE_URL:
+        try:
+            response = requests.post(
+                f"{OCR_SERVICE_URL}/ocr/timetable",
+                files={"file": (file.filename or "timetable.jpg", raw, file.content_type or "image/jpeg")},
+                headers={"X-OCR-Secret": OCR_SERVICE_SECRET},
+                timeout=90,
+            )
+            data = response.json()
+        except (requests.RequestException, ValueError) as exc:
+            raise HTTPException(status_code=503, detail="Dịch vụ đọc ảnh đang bận hoặc chưa sẵn sàng.") from exc
+        if response.status_code >= 400:
+            raise HTTPException(status_code=response.status_code, detail=data.get("detail", "Không đọc được ảnh."))
+        slots = data.get("slots", [])
+        warnings = data.get("warnings", [])
+    else:
+        try:
+            slots, warnings = extract_timetable_slots(raw)
+        except TimetableImageError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {
         "message": f"Đã đọc {len(slots)} tiết học. Kiểm tra lại rồi bấm Lưu vào thời khóa biểu.",
         "warnings": warnings,
@@ -1138,7 +1158,7 @@ async def import_schedule_from_image(
 @app.get("/api/schedule/import-image/status")
 def schedule_image_import_status(authorization: str | None = Header(default=None)):
     """Cho giao dien biet truoc khi nen hien nut tai anh."""
-    return {"available": timetable_ocr_available()}
+    return {"available": bool(OCR_SERVICE_URL or timetable_ocr_available())}
 
 
 @app.post("/api/schedule/slots")
