@@ -23,6 +23,16 @@ LINK_REQUESTS_LOCK = RLock()
 # Dung PBKDF2 de doi xung voi cach luu PIN, khong them thu vien ngoai.
 PASSWORD_ITERATIONS = 200_000
 _PASSWORD_PREFIX = "pbkdf2_sha256$"
+_STUDENT_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+def _generate_student_id(used_codes: set[str]) -> str:
+    normalized_codes = {str(code).strip().upper() for code in used_codes}
+    while True:
+        suffix = "".join(secrets.choice(_STUDENT_CODE_ALPHABET) for _ in range(8))
+        student_id = f"HS-{suffix}"
+        if student_id not in normalized_codes:
+            return student_id
 
 
 def hash_password(password: str) -> str:
@@ -90,22 +100,19 @@ def load_users() -> list[dict[str, Any]]:
         if not isinstance(users, list):
             raise RuntimeError("Danh sách tài khoản không hợp lệ.")
 
-        used_codes = {
-            str(user.get("student_id", "")).strip().upper()
-            for user in users
-            if user.get("role") == "student" and str(user.get("student_id", "")).strip()
-        }
+        used_codes: set[str] = set()
         changed = False
-        next_number = 1
         for user in users:
-            if user.get("role") != "student" or str(user.get("student_id", "")).strip():
+            if user.get("role") != "student":
                 continue
-            while f"HS-{next_number:03d}" in used_codes:
-                next_number += 1
-            user["student_id"] = f"HS-{next_number:03d}"
-            used_codes.add(user["student_id"])
-            next_number += 1
-            changed = True
+            student_id = str(user.get("student_id", "")).strip()
+            normalized_id = student_id.upper()
+            if not student_id or normalized_id in used_codes:
+                student_id = _generate_student_id(used_codes)
+                user["student_id"] = student_id
+                normalized_id = student_id.upper()
+                changed = True
+            used_codes.add(normalized_id)
         if changed:
             save_users(users)
         return users
@@ -244,7 +251,13 @@ def assign_student_to_parent(parent_username: str, student_username: str) -> dic
         for item in users:
             if str(item.get("username", "")).strip().lower() == str(student_username).strip().lower():
                 item["parent_username"] = str(parent_username).strip()
-                item["student_id"] = item.get("student_id") or f"HS-{len(users):04d}"
+                if not str(item.get("student_id", "")).strip():
+                    used_codes = {
+                        str(user.get("student_id", "")).strip().upper()
+                        for user in users
+                        if user.get("role") == "student"
+                    }
+                    item["student_id"] = _generate_student_id(used_codes)
                 break
         save_users(users)
     return student
@@ -408,9 +421,14 @@ def register_user(
         if any(usernames_match(str(item.get("username", "")), clean_username) for item in users):
             raise ValueError("Tên đăng nhập đã tồn tại.")
 
-        if clean_role == "student" and not str(student_id).strip():
-            student_count = sum(1 for item in users if item.get("role") == "student")
-            student_id = f"HS-{student_count + 1:03d}"
+        if clean_role == "student":
+            used_codes = {
+                str(item.get("student_id", "")).strip().upper()
+                for item in users
+                if item.get("role") == "student"
+            }
+            if not str(student_id).strip() or str(student_id).strip().upper() in used_codes:
+                student_id = _generate_student_id(used_codes)
         user = {
             "id": f"user-{uuid4().hex}",
             "username": clean_username,
