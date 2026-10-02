@@ -19,7 +19,7 @@
 | StudySync parent dashboard API | 25 requests | Median 7.6 ms; P95 12 ms | Not a page flow | Temporary parent with no linked children |
 | StudySync owner APIs | 25 requests each | Overview median 3.2 ms/P95 6.2 ms; users median 4.9 ms/P95 7 ms | Not a page flow | Temporary owner and local JSON store |
 | StudySync tab switch: schedule/assignments | No network requests | Median 7.2 ms; P95 12.5 ms from click to active view | Not a page flow | 20 browser interactions after final retry adjustment |
-| OCR image import | Not measured | Not measured | Not measured | Local environment lacks OpenCV and RapidOCR; external OCR is intentionally excluded from the 1-second target |
+| Gemini timetable image import | Not measured against live Gemini | Not measured | Not measured | Requires `TIMETABLE_GEMINI_API_KEY`; third-party latency/quota are outside local loopback benchmarks |
 
 ## Current Test Baseline
 
@@ -65,6 +65,6 @@ The five post-change login trials were 504, 222, 240, 375, and 221 ms. Inbox ver
 ## Remaining Bottlenecks
 
 - Public Render Free cold-start and Neon idle-compute latency are outside this loopback baseline.
-- OCR image recognition is compute-heavy and external-service startup is outside the 1-second target.
+- Gemini image extraction is an external API call; latency and quota depend on Google's service and are not claimed to meet 1-2 seconds.
 - Local assignment/profile/parent/owner API timings are recorded above; production data-volume and hosted-service timings remain unmeasured.
 - The earlier HTTP benchmark endpoint and test account ran against disposable local storage, not PostgreSQL or Render.

@@ -1,0 +1,6 @@
+INFO:     127.0.0.1:62317 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52789 - "GET /health/data HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52789 - "GET / HTTP/1.1" 307 Temporary Redirect
+INFO:     127.0.0.1:52789 - "GET /login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51098 - "GET /login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51098 - "GET /api/push/config HTTP/1.1" 200 OK

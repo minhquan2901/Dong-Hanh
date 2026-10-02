@@ -7,15 +7,16 @@
 # Sau khi cấu hình, đặt hai biến môi trường trong Render Dashboard
 # (Settings -> Environment):
 #
-#   STUDYSYNC_DATABASE_URL   -> chuỗi kết nối lấy từ Neon Console
-#   STUDYSYNC_SESSION_SECRET -> chuỗi ngẫu nhiên từ 32 ký tự trở lên
+#   STUDYSYNC_DATABASE_URL    -> chuỗi kết nối lấy từ Neon Console
+#   STUDYSYNC_SESSION_SECRET  -> chuỗi ngẫu nhiên từ 32 ký tự trở lên
+#   TIMETABLE_GEMINI_API_KEY  -> Gemini API key, chỉ lưu trong Render Environment
 #
 # Xem README mục "Chuyển dữ liệu sang Neon" để biết cách lấy các giá trị này
 # và chuyển dữ liệu cũ lên Neon trước lần deploy đầu tiên.
 
 services:
   - type: web
-    name: studysync
+    name: dong-hanh
     runtime: python
     plan: free
     rootDir: BAITHI
@@ -23,39 +24,19 @@ services:
     startCommand: uvicorn web_app:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
-      # rapidocr-onnxruntime chưa có wheel tương thích với Python mới hơn.
       - key: PYTHON_VERSION
         value: "3.11.9"
       - key: STUDYSYNC_DATABASE_URL
         sync: false
       - key: STUDYSYNC_SESSION_SECRET
         sync: false
-      # Web chi proxy anh sang OCR service, khong nap model OCR trong RAM web.
-      - key: OCR_SERVICE_URL
-        fromService:
-          type: web
-          name: studysync-ocr
-          envVarKey: RENDER_EXTERNAL_URL
-      - key: OCR_SERVICE_SECRET
+      - key: TIMETABLE_GEMINI_API_KEY
         sync: false
+      - key: TIMETABLE_GEMINI_MODEL
+        value: gemini-3.8-flash
       # Tiến trình web không tự gửi nhắc nữa; chạy đúng một worker riêng.
       - key: REMINDER_TICK_ENABLED
         value: "false"
-
-  # OCR chạy tách khỏi web để model ONNX không làm sập service chính.
-  - type: web
-    name: studysync-ocr
-    runtime: python
-    plan: free
-    rootDir: BAITHI
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn backend.ocr_server:app --host 0.0.0.0 --port $PORT
-    healthCheckPath: /health
-    envVars:
-      - key: PYTHON_VERSION
-        value: "3.11.9"
-      - key: OCR_SERVICE_SECRET
-        sync: false
 
   # Worker nhắc thông báo. Chỉ cần một instance vì khoá chống gửi trùng
   # nằm ở tầng dữ liệu, nên thêm worker cũng không gửi lặp.

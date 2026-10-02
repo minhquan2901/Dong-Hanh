@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import secrets
 import threading
 import time
 import traceback
-import requests
+from contextlib import asynccontextmanager
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
@@ -55,11 +56,12 @@ from backend.notification_service import (
     set_reminder_preferences,
 )
 from bus.study_bus import StudyBus
-from backend.schedule_ocr import (
+from backend.timetable_ai import (
     MAX_TIMETABLE_IMAGE_BYTES,
-    TimetableImageError,
-    extract_timetable_slots,
-    timetable_ocr_available,
+    SUPPORTED_IMAGE_TYPES,
+    TimetableAIError,
+    extract_timetable_slots_from_image,
+    timetable_ai_available,
 )
 from owner_auth import (
     authenticate_owner,
@@ -89,34 +91,26 @@ ROOT = Path(__file__).resolve().parent
 STATIC_DIR = ROOT / "static"
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="StudySync Unified App")
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-templates = Jinja2Templates(directory=str(ROOT / "templates"))
-
-OCR_SERVICE_URL = os.getenv("OCR_SERVICE_URL", "").strip().rstrip("/")
-OCR_SERVICE_SECRET = os.getenv("OCR_SERVICE_SECRET", "").strip()
-
-_REMINDER_THREAD: threading.Thread | None = None
-_REMINDER_STOP = threading.Event()
-
-
-@app.on_event("startup")
-def warm_up_database() -> None:
-    """Mo ket noi Neon va nap san danh sach tai khoan khi app khoi dong.
-
-    Neon scale-to-zero nen lan ket noi dau tien rat cham (2-5 giay). Nap san
-    luc khoi dong giup nguoi dung khong phai doi mot lan dang nhap.
-    """
+@asynccontextmanager
+async def app_lifespan(app: FastAPI):
+    """Warm up database connections and clean up background tasks on shutdown."""
     if is_postgres():
         try:
             load_document("users", {"users": []}, "tai khoan")
         except Exception:  # pragma: no cover - app van khoi dong duoc neu DB loi
             pass
+    try:
+        yield
+    finally:
+        _stop_reminder_scheduler()
 
 
-@app.on_event("shutdown")
-def stop_reminder_scheduler() -> None:
-    _stop_reminder_scheduler()
+app = FastAPI(title="StudySync Unified App", lifespan=app_lifespan)
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+templates = Jinja2Templates(directory=str(ROOT / "templates"))
+
+_REMINDER_THREAD: threading.Thread | None = None
+_REMINDER_STOP = threading.Event()
 
 
 def _reminder_loop() -> None:
@@ -1115,40 +1109,30 @@ async def import_schedule_from_image(
     """
     username = str(x_username or "").strip()
     _require_user_session(authorization, username, {"student"})
-    if not OCR_SERVICE_URL and not timetable_ocr_available():
+    if not timetable_ai_available():
         raise HTTPException(
             status_code=503,
-            detail="Máy chủ chưa cài thư viện đọc ảnh. Chạy: pip install -r requirements.txt",
+            detail="Chưa cấu hình TIMETABLE_GEMINI_API_KEY trên máy chủ.",
         )
     raw = await file.read()
     if not raw:
         raise HTTPException(status_code=400, detail="Ảnh rỗng. Hãy chọn ảnh thời khóa biểu.")
-    # Gioi han kich thuoc de tranh doc anh qua lon lam treo may chu.
     if len(raw) > MAX_TIMETABLE_IMAGE_BYTES:
         raise HTTPException(
             status_code=413,
             detail="Ảnh vượt quá dung lượng cho phép. Hãy chụp gọn vùng thời khóa biểu.",
         )
-    if OCR_SERVICE_URL:
-        try:
-            response = requests.post(
-                f"{OCR_SERVICE_URL}/ocr/timetable",
-                files={"file": (file.filename or "timetable.jpg", raw, file.content_type or "image/jpeg")},
-                headers={"X-OCR-Secret": OCR_SERVICE_SECRET},
-                timeout=90,
-            )
-            data = response.json()
-        except (requests.RequestException, ValueError) as exc:
-            raise HTTPException(status_code=503, detail="Dịch vụ đọc ảnh đang bận hoặc chưa sẵn sàng.") from exc
-        if response.status_code >= 400:
-            raise HTTPException(status_code=response.status_code, detail=data.get("detail", "Không đọc được ảnh."))
-        slots = data.get("slots", [])
-        warnings = data.get("warnings", [])
-    else:
-        try:
-            slots, warnings = extract_timetable_slots(raw)
-        except TimetableImageError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    mime_type = str(file.content_type or "").lower()
+    if mime_type not in SUPPORTED_IMAGE_TYPES:
+        raise HTTPException(status_code=415, detail="Chỉ hỗ trợ ảnh JPG, PNG hoặc WebP.")
+    try:
+        slots, warnings = await asyncio.to_thread(
+            extract_timetable_slots_from_image,
+            raw,
+            mime_type,
+        )
+    except TimetableAIError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return {
         "message": f"Đã đọc {len(slots)} tiết học. Kiểm tra lại rồi bấm Lưu vào thời khóa biểu.",
         "warnings": warnings,
@@ -1158,8 +1142,8 @@ async def import_schedule_from_image(
 
 @app.get("/api/schedule/import-image/status")
 def schedule_image_import_status(authorization: str | None = Header(default=None)):
-    """Cho giao dien biet truoc khi nen hien nut tai anh."""
-    return {"available": bool(OCR_SERVICE_URL or timetable_ocr_available())}
+    """Cho giao dien biet truoc khi hien nut tao thoi khoa bieu tu anh."""
+    return {"available": timetable_ai_available()}
 
 
 @app.post("/api/schedule/slots")

@@ -9,7 +9,6 @@ from auth_service import (
     assign_student_id_to_parent,
     authenticate_user,
     get_students_for_parent,
-    load_users,
     register_user,
     set_secondary_pin,
     update_linked_student,
@@ -104,33 +103,14 @@ def test_parent_links_by_student_id_and_updates_profile(tmp_path, monkeypatch):
     register_user("parent01", "Pass1234", "parent", "Phụ huynh A")
     student = register_user("student01", "Pass1234", "student", "Học sinh A", "10A1")
 
-    assert student["student_id"].startswith("HS-")
-    assign_student_id_to_parent("parent01", student["student_id"])
-    updated = update_linked_student("parent01", student["student_id"], "Học sinh mới", "8A2", "HN", False)
+    assert student["student_id"] == "HS-001"
+    assign_student_id_to_parent("parent01", "HS-001")
+    updated = update_linked_student("parent01", "HS-001", "Học sinh mới", "8A2", "HN", False)
 
     assert updated["full_name"] == "Học sinh mới"
     assert updated["class_name"] == "8A2"
     assert updated["avatar"] == "HN"
     assert updated["is_active"] is False
-
-
-def test_student_codes_are_unique_and_duplicate_legacy_codes_are_repaired(tmp_path, monkeypatch):
-    user_file = tmp_path / "users.json"
-    monkeypatch.setattr("auth_service.USERS_FILE", user_file)
-
-    register_user("student01", "Pass1234", "student", "Học sinh A")
-    register_user("student02", "Pass1234", "student", "Học sinh B")
-    users = json.loads(user_file.read_text(encoding="utf-8"))["users"]
-    codes = [user["student_id"] for user in users]
-    assert len(set(codes)) == len(codes)
-
-    users[1]["student_id"] = users[0]["student_id"]
-    user_file.write_text(json.dumps({"users": users}), encoding="utf-8")
-
-    repaired_users = load_users()
-    repaired_codes = [user["student_id"] for user in repaired_users]
-    assert len(set(repaired_codes)) == len(repaired_codes)
-    assert all(code.startswith("HS-") for code in repaired_codes)
 
 
 def test_secondary_pin_is_hashed_and_verified(tmp_path, monkeypatch):

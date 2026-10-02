@@ -20,7 +20,7 @@
 - `bus/study_bus.py`: nghiệp vụ lịch học, bài tập và thông báo.
 - `database/study_repository.py`: lưu lịch/bài tập trong `data/study_data.json`.
 - `reminder_worker.py`: tiến trình riêng gửi nhắc hạn bài và nhắc lịch học.
-- `backend/schedule_ocr.py`: đọc ảnh thời khóa biểu và suy ra các tiết học.
+- `backend/timetable_ai.py`: gửi ảnh thời khóa biểu tới Gemini Flash và kiểm tra JSON trả về.
 
 ## UI/UX và kiến trúc
 
@@ -59,7 +59,7 @@ streamlit run web_app.py --server.address 0.0.0.0 --server.port 8501
 
 Trên điện thoại kết nối cùng Wi-Fi với máy tính, mở `http://IP_MAY_TINH:8501`. IP mạng nội bộ có thể xem bằng lệnh `ipconfig` (dòng **IPv4 Address**). Nếu không truy cập được, cho phép Python/Streamlit qua Windows Firewall trên mạng Private. Không dùng `localhost` trên điện thoại vì địa chỉ đó trỏ về chính điện thoại.
 
-Tính năng AI đang tạm tắt. Không cần API key để chạy StudySync.
+StudySync không có chatbot AI. Chỉ tính năng tạo thời khóa biểu từ ảnh cần Gemini API key.
 
 ## Công khai thành link web
 
@@ -71,20 +71,13 @@ Tính năng AI đang tạm tắt. Không cần API key để chạy StudySync.
 
 ## Tạo thời khóa biểu từ ảnh
 
-Trong ô **Thời khóa biểu** có nút **Tạo từ ảnh**. Bấm nút, chọn ảnh thời khóa biểu, máy sẽ đọc chữ và dựng bảng tiết học để bạn kiểm tra. Chỉ khi bấm **Lưu vào thời khóa biểu** thì dữ liệu mới được ghi, nên có thể sửa trước khi lưu.
+Trong ô **Thời khóa biểu** có nút **Tạo từ ảnh**. Ảnh được gửi từ backend tới Gemini Flash để phân tích thành JSON thời khóa biểu. Bảng dựng ra là bản xem trước; chỉ khi bấm **Lưu vào thời khóa biểu** thì dữ liệu mới được ghi.
 
-Máy đọc ảnh bằng `rapidocr-onnxruntime` và `opencv`, chạy hoàn toàn offline, không cần API key. Cách hoạt động:
+Tạo Gemini API key trong [Google AI Studio](https://aistudio.google.com/apikey), sau đó đặt biến `TIMETABLE_GEMINI_API_KEY` trong Render Environment hoặc `.env` local. Có thể đổi model bằng `TIMETABLE_GEMINI_MODEL` (mặc định `gemini-3.8-flash`). Không đưa key vào frontend, Git hoặc ảnh chụp log. Ảnh thời khóa biểu sẽ được gửi tới Google Gemini; hãy kiểm tra chính sách dữ liệu và quota của tài khoản API.
 
-1. Nhận ra các cột **Thứ 2** đến **Thứ 7** trên ảnh.
-2. Tìm nhãn **SÁNG** / **CHIỀU** để tách hai bảng.
-3. Gom chữ theo ô, tách theo dấu `-` thành môn học và giáo viên.
-4. Chuẩn hoá tên môn về dạng gọn (ví dụ `NGU' VÃN` → `Ngữ văn`).
-
-Nút này tự ẩn nếu máy chủ chưa cài thư viện đọc ảnh, vì vậy khi deploy cần chạy `pip install -r requirements.txt`.
+Nút tự ẩn nếu `TIMETABLE_GEMINI_API_KEY` chưa được cấu hình. Backend giới hạn ảnh 8 MB, yêu cầu model trả JSON theo schema, kiểm tra buổi/ngày/tiết rồi mới gửi bản xem trước.
 
 **Ảnh nên chụp như thế nào:** chụp thẳng, đủ cả bảng, có đủ tiêu đề Thứ 2 đến Thứ 7, chữ rõ và không bị che. Ảnh chụp nghiêng hoặc tối thường đọc sai nhiều ô, nên luôn kiểm tra bảng xem trước.
-
-Kiểm thử trên ảnh mô phỏng: `python tools/make_sample_timetable.py` rồi `python tools/ocr_probe.py`.
 
 ## Push notification trên máy tính và điện thoại
 
@@ -196,13 +189,11 @@ STUDYSYNC_SESSION_SECRET    = <chuỗi ngẫu nhiên từ 32 ký tự trở lên
 STUDYSYNC_OWNER_SECRET      = <chuỗi ngẫu nhiên từ 32 ký tự trở lên>
 OWNER_USERNAME              = <tên đăng nhập quản trị>
 OWNER_PASSWORD              = <mật khẩu quản trị>
-OCR_SERVICE_SECRET          = <chuỗi ngẫu nhiên giống nhau ở web và studysync-ocr>
+TIMETABLE_GEMINI_API_KEY     = <Gemini API key>
+TIMETABLE_GEMINI_MODEL       = gemini-3.8-flash
 ```
 
-OCR thời khóa biểu chạy ở service Render riêng `studysync-ocr`, không chạy trong
-Web Service chính. `OCR_SERVICE_URL` được nối tự động từ `render.yaml`; cần đặt
-`OCR_SERVICE_SECRET` cùng một giá trị cho hai service. Nhờ vậy lỗi hoặc thiếu bộ
-nhớ ở OCR không làm sập website chính.
+Chỉ cần đặt Gemini key trên Web Service `dong-hanh`; không còn OCR service riêng. Nếu key bị thiếu hoặc quota/API key bị từ chối, chức năng tạo lịch từ ảnh sẽ báo lỗi nhưng các thao tác lịch thủ công vẫn hoạt động.
 
 `STUDYSYNC_SESSION_SECRET` phải cố định. Nếu để ứng dụng tự sinh khóa ở `session_signing_secret.json` trong thư mục dữ liệu, thì trên gói Free khóa đó mất sau mỗi lần deploy và mọi phiên đăng nhập đang mở đều bị đăng xuất.
 
