@@ -1,4 +1,5 @@
 import base64
+from copy import deepcopy
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import hashlib
@@ -29,6 +30,8 @@ ACCOUNTS_FILE = ACCOUNT_DATA_DIR / "accounts.json"
 STUDENT_ACCOUNTS_FILE = ACCOUNT_DATA_DIR / "accounts2.json"
 PARENT_ACCOUNTS_FILE = ACCOUNT_DATA_DIR / "accounts3.json"
 ACCOUNT_LOCK = RLock()
+ACCOUNT_CACHE_LOCK = RLock()
+ACCOUNT_CACHE: dict[Path, tuple[int, int, dict]] = {}
 PASSWORD_ITERATIONS = 200_000
 PASSWORD_PREFIX = "pbkdf2_sha256$"
 SESSION_COOKIE_NAME = "donghanh_session"
@@ -66,21 +69,33 @@ def _migrate_legacy_account_file(file_path: Path) -> None:
 		temporary_path.unlink(missing_ok=True)
 
 
-def load_accounts(file_path: Path = ACCOUNTS_FILE) -> dict:
+
+def load_accounts(file_path: Path | None = None) -> dict:
+	file_path = Path(file_path or ACCOUNTS_FILE).resolve()
 	_migrate_legacy_account_file(file_path)
+	try:
+		file_stat = file_path.stat()
+	except FileNotFoundError:
+		return {"accounts": []}
+	cache_signature = (file_stat.st_mtime_ns, file_stat.st_size)
+	with ACCOUNT_CACHE_LOCK:
+		cached = ACCOUNT_CACHE.get(file_path)
+		if cached and cached[:2] == cache_signature:
+			return deepcopy(cached[2])
 	try:
 		with file_path.open("r", encoding="utf-8") as file:
 			data = json.load(file)
-	except FileNotFoundError:
-		return {"accounts": []}
 	except json.JSONDecodeError as exc:
 		raise RuntimeError(f"Tệp tài khoản bị lỗi JSON: {file_path}") from exc
 	if not isinstance(data, dict) or not isinstance(data.get("accounts", []), list):
 		raise RuntimeError(f"Cấu trúc tệp tài khoản không hợp lệ: {file_path}")
+	with ACCOUNT_CACHE_LOCK:
+		ACCOUNT_CACHE[file_path] = (*cache_signature, deepcopy(data))
 	return data
 
 
-def save_accounts(data: dict, file_path: Path = ACCOUNTS_FILE) -> None:
+def save_accounts(data: dict, file_path: Path | None = None) -> None:
+	file_path = Path(file_path or ACCOUNTS_FILE).resolve()
 	file_path.parent.mkdir(parents=True, exist_ok=True)
 	with tempfile.NamedTemporaryFile(
 		mode="w", encoding="utf-8", dir=file_path.parent,
@@ -91,6 +106,8 @@ def save_accounts(data: dict, file_path: Path = ACCOUNTS_FILE) -> None:
 		file.flush()
 		os.fsync(file.fileno())
 	os.replace(temporary_path, file_path)
+	with ACCOUNT_CACHE_LOCK:
+		ACCOUNT_CACHE.pop(file_path, None)
 
 
 def hash_password(password: str) -> str:

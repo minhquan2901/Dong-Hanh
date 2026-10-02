@@ -91,3 +91,27 @@ def test_parent_dashboard_aggregates_only_linked_students_owned_tasks(tmp_path, 
     assert {task["title"] for task in data["tasks"]} == {"Bài A", "Bài B"}
     assert {task["student_name"] for task in data["tasks"]} == {"Học sinh A", "Học sinh B"}
     assert data["overview"]["total_students"] == 2
+
+
+def test_parent_children_endpoint_requires_session_and_uses_session_parent(tmp_path, monkeypatch):
+    monkeypatch.setattr("auth_service.USERS_FILE", tmp_path / "users.json")
+    monkeypatch.setenv("STUDYSYNC_SESSION_SECRET", "test-session-secret-for-parent-children")
+    parent_a = register_user("parent_a", "ParentPass1", "parent", "Phụ huynh A")
+    parent_b = register_user("parent_b", "ParentPass2", "parent", "Phụ huynh B")
+    student_a = register_user("student_a", "StudentPass1", "student", "Học sinh A", "8/1")
+    student_b = register_user("student_b", "StudentPass2", "student", "Học sinh B", "8/2")
+    assign_student_to_parent(parent_a["username"], student_a["username"])
+    assign_student_to_parent(parent_b["username"], student_b["username"])
+    client = TestClient(app)
+
+    assert client.get("/api/parent/children?username=parent_a").status_code == 401
+    login = client.post("/api/auth/login", json={
+        "username": "parent_a", "password": "ParentPass1",
+    })
+    assert login.status_code == 200
+    headers = {"Authorization": f"Bearer {login.json()['token']}"}
+
+    own_children = client.get("/api/parent/children?username=parent_a", headers=headers)
+    assert own_children.status_code == 200
+    assert [student["username"] for student in own_children.json()["students"]] == ["student_a"]
+    assert client.get("/api/parent/children?username=parent_b", headers=headers).status_code == 401

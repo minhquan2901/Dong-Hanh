@@ -271,11 +271,9 @@
             localStorage.setItem('study_sync_identity_reasons', JSON.stringify(result.identity_reasons || []));
             localStorage.setItem('study_sync_username_suggestions', JSON.stringify(result.username_suggestions || []));
             showMessage('Đăng nhập thành công. Đang chuyển hướng...', 'success');
-            setTimeout(() => {
-              window.location.href = result.identity_update_required
-                ? '/account#identity-review'
-                : (result.user.role === 'parent' ? '/parent' : '/student');
-            }, 600);
+            window.location.href = result.identity_update_required
+              ? '/account#identity-review'
+              : (result.user.role === 'parent' ? '/parent' : '/student');
             return;
           }
 

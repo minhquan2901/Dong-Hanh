@@ -45,6 +45,18 @@ def post_json(base_url, path, payload):
         return response.status, json.loads(response.read().decode("utf-8"))
 
 
+def test_account_cache_is_invalidated_after_save(tmp_path):
+    account_file = tmp_path / "accounts.json"
+    app.save_accounts({"accounts": [{"username": "student01", "display_name": "Tên cũ"}]}, account_file)
+
+    loaded_accounts = app.load_accounts(account_file)
+    loaded_accounts["accounts"][0]["display_name"] = "Không được ghi ngược vào cache"
+    assert app.load_accounts(account_file)["accounts"][0]["display_name"] == "Tên cũ"
+
+    app.save_accounts({"accounts": [{"username": "student01", "display_name": "Tên mới"}]}, account_file)
+    assert app.load_accounts(account_file)["accounts"][0]["display_name"] == "Tên mới"
+
+
 def test_student_and_parent_accounts_persist_separately(account_server, tmp_path):
     assert post_json(account_server, "/api/register", {
         "username": "student01",

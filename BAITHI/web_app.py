@@ -679,6 +679,7 @@ async def login_page(request: Request):
 
 
 @app.get("/student")
+@app.get("/student/schedule")
 async def student_dashboard_page(request: Request):
     return templates.TemplateResponse(request=request, name="student_dashboard.html")
 
@@ -1382,7 +1383,11 @@ def update_parent_student(payload: StudentProfilePayload, authorization: str | N
 
 
 @app.get("/api/parent/children")
-def parent_children(username: str = Query(...)):
+def parent_children(
+    username: str = Query(...),
+    authorization: str | None = Header(default=None),
+):
+    _require_user_session(authorization, username, {"parent"})
     students = get_students_for_parent(username)
     return {"students": students}
 

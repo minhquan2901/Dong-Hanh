@@ -801,7 +801,7 @@
       ownerRequest('/api/owner/username-bot')
         .then(renderUsernameBot)
         .catch((error) => console.error('Không làm mới được trạng thái bot username:', error));
-    }, 30000);
+    }, 3 * 60 * 1000);
   </script>
 </body>
 </html>

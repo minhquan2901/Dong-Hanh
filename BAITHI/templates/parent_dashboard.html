@@ -473,7 +473,18 @@
       userNameEl.textContent = user.full_name || user.username;
       welcomeNameEl.textContent = `Theo dõi tiến độ cho ${user.full_name || 'học sinh'}`;
 
-      async function loadDashboard() {
+      let dashboardRefreshPromise = null;
+      const FAST_REFRESH_INTERVAL_MS = 60 * 1000;
+
+      function loadDashboard() {
+        if (dashboardRefreshPromise) return dashboardRefreshPromise;
+        dashboardRefreshPromise = fetchAndRenderDashboard().finally(() => {
+          dashboardRefreshPromise = null;
+        });
+        return dashboardRefreshPromise;
+      }
+
+      async function fetchAndRenderDashboard() {
         const response = await fetch(`/api/dashboard/parent?username=${encodeURIComponent(user.username)}`, { headers: { 'Authorization': `Bearer ${sessionToken}` } });
         const data = await response.json();
         if (!response.ok) throw new Error(data.detail || 'Không thể tải dữ liệu.');
@@ -690,6 +701,11 @@
       loadDashboard().catch((error) => {
         document.getElementById('student-list').innerHTML = `<div class="tag warning">${error.message}</div>`;
       });
+      window.setInterval(() => {
+        const activeElement = document.activeElement;
+        if (document.hidden || activeElement.matches('input, textarea, select') || document.querySelector('dialog[open]')) return;
+        void loadDashboard().catch(() => {});
+      }, FAST_REFRESH_INTERVAL_MS);
     </script>
   </body>
 </html>

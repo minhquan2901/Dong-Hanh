@@ -15,6 +15,7 @@ def test_account_and_report_flow(tmp_path, monkeypatch):
     assert 'id="report-button"' in client.get('/account').text
     assert 'id="report-list"' in client.get('/owner').text
     assert 'href="/account#report"' in client.get('/student').text
+    assert client.get('/student/schedule').status_code == 200
     assert 'href="/account#report"' in client.get('/parent').text
     login = client.post('/api/auth/login', json={'username': 'student01', 'password': 'old-pass'})
     assert login.status_code == 200
