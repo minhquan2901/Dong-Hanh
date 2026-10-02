@@ -33,7 +33,7 @@ services:
       - key: TIMETABLE_GEMINI_API_KEY
         sync: false
       - key: TIMETABLE_GEMINI_MODEL
-        value: gemini-3.8-flash
+        value: gemini-2.0-flash
       # Tiến trình web không tự gửi nhắc nữa; chạy đúng một worker riêng.
       - key: REMINDER_TICK_ENABLED
         value: "false"

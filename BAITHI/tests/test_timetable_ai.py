@@ -57,6 +57,7 @@ def test_missing_gemini_key_returns_configuration_error(monkeypatch):
 
 def test_gemini_request_sends_inline_image_and_structured_output(monkeypatch):
     monkeypatch.setenv("TIMETABLE_GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("TIMETABLE_GEMINI_MODEL", "gemini-3.8-flash")
     captured = {}
     result = {"slots": [{
         "session": "afternoon", "day": "7", "period": 2,
@@ -77,12 +78,13 @@ def test_gemini_request_sends_inline_image_and_structured_output(monkeypatch):
     monkeypatch.setattr(timetable_ai.requests, "post", fake_post)
     slots, warnings = timetable_ai.extract_timetable_slots_from_image(b"sample", "image/png")
 
-    assert captured["url"].endswith("/models/gemini-3.8-flash:generateContent")
+    assert captured["url"].endswith("/models/gemini-2.0-flash:generateContent")
     assert captured["headers"]["x-goog-api-key"] == "test-key"
     part = captured["json"]["contents"][0]["parts"][1]["inlineData"]
     assert part["mimeType"] == "image/png"
     assert base64.b64decode(part["data"]) == b"sample"
-    assert captured["json"]["generationConfig"]["responseFormat"]["text"]["mimeType"] == "APPLICATION_JSON"
+    assert captured["json"]["generationConfig"]["responseMimeType"] == "application/json"
+    assert captured["json"]["generationConfig"]["responseSchema"]["type"] == "OBJECT"
     assert slots[0]["subject"] == "KHTN"
     assert warnings == []
 

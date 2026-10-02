@@ -34,6 +34,17 @@ def timetable_ai_available() -> bool:
     return bool(os.getenv("TIMETABLE_GEMINI_API_KEY", "").strip())
 
 
+def _resolve_model_name() -> str:
+    model = os.getenv("TIMETABLE_GEMINI_MODEL", "gemini-2.0-flash").strip()
+    if not model:
+        return "gemini-2.0-flash"
+    if model == "gemini-3.8-flash":
+        return "gemini-2.0-flash"
+    if not _MODEL_NAME.fullmatch(model):
+        raise TimetableAIError("Tên model Gemini không hợp lệ.", 503)
+    return model
+
+
 def _response_schema() -> dict[str, Any]:
     return {
         "type": "OBJECT",
@@ -119,9 +130,7 @@ def extract_timetable_slots_from_image(image_bytes: bytes, mime_type: str) -> tu
     if mime_type not in SUPPORTED_IMAGE_TYPES:
         raise TimetableAIError("Chỉ hỗ trợ ảnh JPG, PNG hoặc WebP.", 415)
 
-    model = os.getenv("TIMETABLE_GEMINI_MODEL", "gemini-3.8-flash").strip()
-    if not _MODEL_NAME.fullmatch(model):
-        raise TimetableAIError("Tên model Gemini không hợp lệ.", 503)
+    model = _resolve_model_name()
 
     prompt = (
         "Đọc ảnh thời khóa biểu trường học và chỉ trả về dữ liệu trong JSON schema. "
@@ -148,13 +157,8 @@ def extract_timetable_slots_from_image(image_bytes: bytes, mime_type: str) -> tu
             "temperature": 0,
             "candidateCount": 1,
             "maxOutputTokens": 4096,
-            "thinkingConfig": {"thinkingLevel": "MINIMAL"},
-            "responseFormat": {
-                "text": {
-                    "mimeType": "APPLICATION_JSON",
-                    "schema": _response_schema(),
-                }
-            },
+            "responseMimeType": "application/json",
+            "responseSchema": _response_schema(),
         },
     }
 

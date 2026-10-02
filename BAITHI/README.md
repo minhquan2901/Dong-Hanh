@@ -73,7 +73,7 @@ StudySync không có chatbot AI. Chỉ tính năng tạo thời khóa biểu t�
 
 Trong ô **Thời khóa biểu** có nút **Tạo từ ảnh**. Ảnh được gửi từ backend tới Gemini Flash để phân tích thành JSON thời khóa biểu. Bảng dựng ra là bản xem trước; chỉ khi bấm **Lưu vào thời khóa biểu** thì dữ liệu mới được ghi.
 
-Tạo Gemini API key trong [Google AI Studio](https://aistudio.google.com/apikey), sau đó đặt biến `TIMETABLE_GEMINI_API_KEY` trong Render Environment hoặc `.env` local. Có thể đổi model bằng `TIMETABLE_GEMINI_MODEL` (mặc định `gemini-3.8-flash`). Không đưa key vào frontend, Git hoặc ảnh chụp log. Ảnh thời khóa biểu sẽ được gửi tới Google Gemini; hãy kiểm tra chính sách dữ liệu và quota của tài khoản API.
+Tạo Gemini API key trong [Google AI Studio](https://aistudio.google.com/apikey), sau đó đặt biến `TIMETABLE_GEMINI_API_KEY` trong Render Environment hoặc `.env` local. Có thể đổi model bằng `TIMETABLE_GEMINI_MODEL` (mặc định `gemini-2.0-flash`). Không đưa key vào frontend, Git hoặc ảnh chụp log. Ảnh thời khóa biểu sẽ được gửi tới Google Gemini; hãy kiểm tra chính sách dữ liệu và quota của tài khoản API.
 
 Nút tự ẩn nếu `TIMETABLE_GEMINI_API_KEY` chưa được cấu hình. Backend giới hạn ảnh 8 MB, yêu cầu model trả JSON theo schema, kiểm tra buổi/ngày/tiết rồi mới gửi bản xem trước.
 
@@ -190,7 +190,7 @@ STUDYSYNC_OWNER_SECRET      = <chuỗi ngẫu nhiên từ 32 ký tự trở lên
 OWNER_USERNAME              = <tên đăng nhập quản trị>
 OWNER_PASSWORD              = <mật khẩu quản trị>
 TIMETABLE_GEMINI_API_KEY     = <Gemini API key>
-TIMETABLE_GEMINI_MODEL       = gemini-3.8-flash
+TIMETABLE_GEMINI_MODEL       = gemini-2.0-flash
 ```
 
 Chỉ cần đặt Gemini key trên Web Service `dong-hanh`; không còn OCR service riêng. Nếu key bị thiếu hoặc quota/API key bị từ chối, chức năng tạo lịch từ ảnh sẽ báo lỗi nhưng các thao tác lịch thủ công vẫn hoạt động.
