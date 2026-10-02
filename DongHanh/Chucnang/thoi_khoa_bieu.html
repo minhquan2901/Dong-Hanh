@@ -43,6 +43,110 @@ const days=['2','3','4','5','6','7'],key='schedule.table';const seed=[['morning'
 </script>
 <script>function removeLesson(id){lessons=lessons.filter(function(item){return item.id!==id});save();renderAll()}</script>
 <script>
+	const usedPeriodsBySlot = new Map();
+	let scheduleNeedsPeriodSave = false;
+	lessons.forEach(function (lesson) {
+		const slot = `${lesson.session}:${lesson.day}`;
+		const usedPeriods = usedPeriodsBySlot.get(slot) || new Set();
+		let period = Number(lesson.period);
+		if (!Number.isInteger(period) || period < 1 || period > 5 || usedPeriods.has(period)) {
+			period = 1;
+			while (usedPeriods.has(period) && period <= 5) period += 1;
+			if (period <= 5) {
+				lesson.period = period;
+				scheduleNeedsPeriodSave = true;
+			}
+		} else if (lesson.period !== period) {
+			lesson.period = period;
+			scheduleNeedsPeriodSave = true;
+		}
+		usedPeriods.add(period);
+		usedPeriodsBySlot.set(slot, usedPeriods);
+	});
+	if (scheduleNeedsPeriodSave) save();
+
+	function render(session) {
+		const target = document.getElementById(session);
+		target.replaceChildren();
+		for (let period = 1; period <= 5; period += 1) {
+			const row = document.createElement('tr');
+			const periodCell = document.createElement('td');
+			periodCell.className = 'period';
+			periodCell.textContent = `Tiết ${period}`;
+			row.appendChild(periodCell);
+			days.forEach(function (day) {
+				const cell = document.createElement('td');
+				cell.className = 'lesson';
+				const lesson = lessons.find((item) => item.session === session && item.day === day && Number(item.period) === period);
+				if (lesson) {
+					const subject = document.createElement('span');
+					subject.className = 'subject';
+					subject.textContent = lesson.subject || '';
+					const teacher = document.createElement('span');
+					teacher.className = 'teacher-name';
+					teacher.textContent = lesson.teacher || '';
+					const actions = document.createElement('span');
+					actions.className = 'actions';
+					const removeButton = document.createElement('button');
+					removeButton.type = 'button';
+					removeButton.className = 'delete';
+					removeButton.textContent = '×';
+					removeButton.setAttribute('aria-label', `Xóa ${lesson.subject || 'tiết học'} tiết ${period}`);
+					removeButton.addEventListener('click', function () { removeLesson(lesson.id); });
+					actions.appendChild(removeButton);
+					cell.append(subject, teacher, actions);
+				} else {
+					const empty = document.createElement('span');
+					empty.className = 'empty';
+					empty.textContent = '—';
+					cell.appendChild(empty);
+				}
+				row.appendChild(cell);
+			});
+			target.appendChild(row);
+		}
+	}
+
+	function addLesson(event) {
+		event.preventDefault();
+		const session = document.getElementById('sessionInput').value;
+		const day = document.getElementById('dayInput').value;
+		const usedPeriods = new Set(lessons
+			.filter((lesson) => lesson.session === session && lesson.day === day)
+			.map((lesson) => Number(lesson.period)));
+		let period = 1;
+		while (usedPeriods.has(period) && period <= 5) period += 1;
+		if (period > 5) {
+			alert('Ngày này đã đủ 5 tiết.');
+			return;
+		}
+		let id = Date.now();
+		while (lessons.some((lesson) => lesson.id === id)) id += 1;
+		lessons.push({
+			id,
+			session,
+			day,
+			period,
+			subject: document.getElementById('subjectInput').value.trim(),
+			teacher: document.getElementById('teacherInput').value.trim(),
+		});
+		save();
+		renderAll();
+		event.target.reset();
+		closeForm();
+	}
+
+	function removeLesson(id) {
+		const lesson = lessons.find((item) => item.id === id);
+		if (!lesson || !confirm(`Xóa tiết ${lesson.subject} khỏi thời khóa biểu?`)) return;
+		lessons = lessons.filter((item) => item.id !== id);
+		save();
+		renderAll();
+	}
+
+	renderAll();
+</script>
+<script>
 	const settingsKey = 'schedule.settings';
 	const savedSettings = JSON.parse(localStorage.getItem(settingsKey) || '{}');
 	document.querySelectorAll('[data-setting]').forEach(function (element) {

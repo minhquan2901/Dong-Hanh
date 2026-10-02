@@ -179,19 +179,55 @@
 
   <script>
     const profile = JSON.parse(localStorage.getItem('user.profile') || '{}');
-    if (profile.role !== 'parent') {
-      window.location.replace('./Login/');
-    }
     const name = profile.name || 'Minh Anh';
     const className = profile.className || '8A1';
     document.getElementById('student-name').textContent = name;
     document.getElementById('student-class').textContent = 'Lớp ' + className + ' · Hồ sơ học sinh đang theo dõi';
     document.getElementById('student-avatar').textContent = name.split(/\s+/).map(function (part) { return part[0]; }).join('').slice(0, 2).toUpperCase();
 
+    async function syncServerProfile() {
+      try {
+        const response = await fetch('/api/session', { cache: 'no-store' });
+        if (!response.ok) {
+          window.location.replace('./Login/');
+          return;
+        }
+        const session = await response.json();
+        if (session.role !== 'parent') {
+          window.location.replace('./Main/');
+          return;
+        }
+        const serverProfile = {
+          ...profile,
+          username: session.username,
+          name: profile.username === session.username && profile.name ? profile.name : session.display_name,
+          className: session.class_name || className,
+          role: session.role,
+        };
+        localStorage.setItem('user.profile', JSON.stringify(serverProfile));
+        document.getElementById('student-name').textContent = serverProfile.name;
+        document.getElementById('student-class').textContent = 'Lớp ' + serverProfile.className + ' · Hồ sơ học sinh đang theo dõi';
+        document.getElementById('student-avatar').textContent = serverProfile.name.split(/\s+/).map(function (part) { return part[0]; }).join('').slice(0, 2).toUpperCase();
+      } catch (error) {
+        console.error('Không thể xác nhận phiên đăng nhập:', error);
+        window.location.replace('./Login/');
+      }
+    }
+    void syncServerProfile();
+
     function logout() {
       if (!window.confirm('Bạn có chắc muốn đăng xuất không?')) return;
-      localStorage.removeItem('user.profile');
-      window.location.href = './Login/';
+      fetch('/api/session', { cache: 'no-store' })
+        .then((response) => response.ok ? response.json() : {})
+        .then((session) => fetch('/api/logout', {
+          method: 'POST',
+          headers: session.csrf_token ? { 'X-CSRF-Token': session.csrf_token } : {},
+        }))
+        .catch((error) => console.error('Không thể kết thúc phiên đăng nhập trên máy chủ:', error))
+        .finally(() => {
+          localStorage.removeItem('user.profile');
+          window.location.href = './Login/';
+        });
     }
   </script>
 </body>

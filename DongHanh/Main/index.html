@@ -101,19 +101,6 @@
     .schedule-row strong { display: block; margin-bottom: 4px; font-size: 12px; }
     .schedule-row span { color: var(--muted); font-size: 10px; }
 
-    .ai-panel { overflow: hidden; border-color: #d8e3f8; }
-    .ai-head { display: flex; align-items: center; gap: 12px; padding: 20px 22px; background: #edf4ff; }
-    .ai-logo { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 50%; color: #fff; font-family: Georgia, serif; font-size: 20px; background: var(--blue); }
-    .ai-head h2 { margin: 0 0 4px; font-family: Georgia, serif; font-size: 19px; }
-    .ai-head p { margin: 0; color: #7190bd; font-size: 10px; }
-    .chat { display: flex; flex-direction: column; gap: 13px; min-height: 230px; padding: 21px 22px 13px; }
-    .message { max-width: 88%; padding: 11px 13px; border-radius: 9px; color: #42516a; font-size: 11px; line-height: 1.55; background: #f2f5f9; }
-    .message.user { align-self: flex-end; color: #fff; background: var(--blue); }
-    .chat-form { display: flex; gap: 8px; padding: 15px 17px; border-top: 1px solid var(--line); }
-    .chat-form input { flex: 1; min-width: 0; height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; outline: 0; font-size: 11px; }
-    .chat-form input:focus { border-color: var(--blue); }
-    .send { width: 42px; border: 0; border-radius: 6px; color: #fff; background: var(--blue); }
-
     .modal-backdrop { display: none; position: fixed; inset: 0; z-index: 5; place-items: center; padding: 20px; background: rgba(20, 45, 88, .45); }
     .modal-backdrop.open { display: grid; }
     .modal { width: min(100%, 430px); padding: 26px; border-radius: 10px; background: #fff; box-shadow: 0 24px 70px rgba(20, 45, 88, .25); }
@@ -142,8 +129,8 @@
     @media (max-width: 430px) { .user-info { display: none; } .panel-head { padding-left: 17px; padding-right: 17px; } .assignments { padding-left: 17px; padding-right: 17px; } .week { padding-left: 11px; padding-right: 11px; } .form-row { grid-template-columns: 1fr; gap: 0; } }
   </style>
   <style>
-    .send, .modal-submit { color: #172b4d; background: #E0b0FF; }
-    .send:hover, .modal-submit:hover { color: #172b4d; background: #D697FF; }
+    .modal-submit { color: #172b4d; background: #E0b0FF; }
+    .modal-submit:hover { color: #172b4d; background: #D697FF; }
   </style>
 </head>
 <body>
@@ -155,8 +142,7 @@
         <button class="active" type="button"><span class="nav-icon">⌂</span><span>Tổng quan</span></button>
         <button type="button" onclick="window.location.href='../Chucnang/thoi_khoa_bieu.html'"><span class="nav-icon">▣</span><span>Thời khóa biểu</span></button>
         <button id="parent-nav" type="button" onclick="window.location.href='../ChucnangPH.html'"><span class="nav-icon">♧</span><span>Phụ huynh</span></button>
-        <button type="button"><span class="nav-icon">✓</span><span>Báo bài</span></button>
-        <button type="button"><span class="nav-icon">✦</span><span>Hỏi bài AI</span></button>
+        <button id="assignments-nav" type="button"><span class="nav-icon">✓</span><span>Báo bài</span></button>
       </nav>
       <div class="sidebar-bottom"><div class="tip"><strong>Học nhẹ hơn mỗi ngày</strong><p>Hoàn thành từng việc nhỏ để giữ nhịp học thật đều.</p></div></div>
     </aside>
@@ -170,26 +156,26 @@
       <section class="welcome"><div><h1 id="welcome-title">Chào bạn, Minh Anh.</h1><p>Một ngày mới để học thêm điều thú vị.</p></div><div class="date-badge" id="current-date"></div></section>
 
       <section class="summary" aria-label="Tóm tắt hôm nay">
-        <div class="summary-card"><div class="summary-icon">▦</div><div><strong>04</strong><span>Tiết học hôm nay</span></div></div>
-        <div class="summary-card"><div class="summary-icon">◷</div><div><strong>03</strong><span>Bài cần hoàn thành</span></div></div>
-        <div class="summary-card"><div class="summary-icon">✓</div><div><strong>01</strong><span>Bài đã hoàn tất</span></div></div>
+        <div class="summary-card"><div class="summary-icon">▦</div><div><strong id="today-lesson-count">04</strong><span>Tiết học hôm nay</span></div></div>
+        <div class="summary-card"><div class="summary-icon">◷</div><div><strong id="pending-assignment-count">03</strong><span>Bài cần hoàn thành</span></div></div>
+        <div class="summary-card"><div class="summary-icon">✓</div><div><strong id="completed-assignment-count">01</strong><span>Bài đã hoàn tất</span></div></div>
       </section>
 
       <div class="main-grid">
-        <section class="panel">
+        <section class="panel" id="assignments-panel">
           <div class="panel-head"><h2>Báo bài cần làm</h2><a href="#" onclick="showAllAssignments(event)">Xem tất cả</a></div>
           <div class="assignments" id="assignments">
-            <div class="assignment"><input class="check" type="checkbox"><div class="assignment-info"><span class="assignment-title">Bài tập phương trình bậc hai</span><span class="assignment-meta">Toán học · Hạn nộp <b>Hôm nay</b></span></div><span class="priority">Gấp</span></div>
-            <div class="assignment"><input class="check" type="checkbox"><div class="assignment-info"><span class="assignment-title">Soạn bài Vợ chồng A Phủ</span><span class="assignment-meta">Ngữ văn · Hạn nộp <b>Ngày mai</b></span></div><span class="priority normal">Bình thường</span></div>
-            <div class="assignment"><input class="check" type="checkbox"><div class="assignment-info"><span class="assignment-title">Ôn tập chương 2: Chuyển động</span><span class="assignment-meta">Vật lý · Hạn nộp <b>Thứ Sáu</b></span></div><span class="priority normal">Bình thường</span></div>
-            <div class="assignment done"><input class="check" type="checkbox" checked><div class="assignment-info"><span class="assignment-title">Học 20 từ vựng Unit 3</span><span class="assignment-meta">Tiếng Anh · Đã hoàn thành</span></div><span class="priority normal">Xong</span></div>
+            <div class="assignment" data-assignment-id="math-equation"><input class="check" type="checkbox"><div class="assignment-info"><span class="assignment-title">Bài tập phương trình bậc hai</span><span class="assignment-meta">Toán học · Hạn nộp <b>Hôm nay</b></span></div><span class="priority">Gấp</span></div>
+            <div class="assignment" data-assignment-id="prepare-vcaphu"><input class="check" type="checkbox"><div class="assignment-info"><span class="assignment-title">Soạn bài Vợ chồng A Phủ</span><span class="assignment-meta">Ngữ văn · Hạn nộp <b>Ngày mai</b></span></div><span class="priority normal">Bình thường</span></div>
+            <div class="assignment" data-assignment-id="motion-chapter-2"><input class="check" type="checkbox"><div class="assignment-info"><span class="assignment-title">Ôn tập chương 2: Chuyển động</span><span class="assignment-meta">Vật lý · Hạn nộp <b>Thứ Sáu</b></span></div><span class="priority normal">Bình thường</span></div>
+            <div class="assignment done" data-assignment-id="english-unit-3"><input class="check" type="checkbox" checked><div class="assignment-info"><span class="assignment-title">Học 20 từ vựng Unit 3</span><span class="assignment-meta">Tiếng Anh · Đã hoàn thành</span></div><span class="priority normal">Xong</span></div>
           </div>
         </section>
 
         <div>
           <section class="panel calendar">
             <div class="panel-head"><h2>Lịch hôm nay</h2><a href="#" onclick="openModal(event)">+ Thêm tiết</a></div>
-            <div class="week"><div class="day">T2<strong>14</strong></div><div class="day">T3<strong>15</strong></div><div class="day today">T4<strong>16</strong></div><div class="day">T5<strong>17</strong></div><div class="day">T6<strong>18</strong></div><div class="day">T7<strong>19</strong></div><div class="day">CN<strong>20</strong></div></div>
+            <div class="week" id="current-week"></div>
             <div class="schedule-list" id="schedule-list">
               <div class="schedule-row"><span class="schedule-time">07:30</span><i class="schedule-line"></i><div><strong>Toán học</strong><span>Phòng A203 · Cô Lan</span></div></div>
               <div class="schedule-row"><span class="schedule-time">09:15</span><i class="schedule-line"></i><div><strong>Ngữ văn</strong><span>Phòng A203 · Thầy Nam</span></div></div>
@@ -197,11 +183,6 @@
             </div>
           </section>
 
-          <section class="panel ai-panel">
-            <div class="ai-head"><div class="ai-logo">✦</div><div><h2>Trợ lý hỏi bài</h2><p>Luôn sẵn sàng giải thích cùng bạn</p></div></div>
-            <div class="chat" id="chat"><div class="message">Chào Minh Anh! Bạn đang cần mình giải thích bài nào hôm nay?</div><div class="message user">Giúp mình hiểu cách giải phương trình bậc hai nhé.</div><div class="message">Được chứ! Bạn gửi đề bài cụ thể, mình sẽ hướng dẫn từng bước, không chỉ đưa đáp án.</div></div>
-            <form class="chat-form" onsubmit="sendMessage(event)"><input id="question" type="text" placeholder="Hỏi bài tập của bạn..." aria-label="Câu hỏi bài tập"><button class="send" type="submit" aria-label="Gửi câu hỏi">➜</button></form>
-          </section>
         </div>
       </div>
     </main>
@@ -227,45 +208,145 @@
 
   <script>
     const sessionProfile = JSON.parse(localStorage.getItem('user.profile') || '{}');
+    const assignmentStorageKey = `assignments.table.${sessionProfile.username || 'legacy'}`;
     if (sessionProfile.role === 'parent') window.location.replace('../ChucnangPH.html');
 
+    document.getElementById('assignments-nav').addEventListener('click', () => {
+      document.getElementById('assignments-panel').scrollIntoView({ block: 'start' });
+    });
     document.querySelectorAll('.check').forEach(function (checkbox) {
-      checkbox.addEventListener('change', function () { checkbox.closest('.assignment').classList.toggle('done', checkbox.checked); });
+      checkbox.addEventListener('change', function () {
+        checkbox.closest('.assignment').classList.toggle('done', checkbox.checked);
+        const state = readAssignmentState();
+        state[checkbox.closest('.assignment').dataset.assignmentId] = checkbox.checked;
+        localStorage.setItem(assignmentStorageKey, JSON.stringify(state));
+        updateStudentSummary();
+      });
     });
 
     function openModal(event) { event.preventDefault(); document.getElementById('modal').classList.add('open'); document.getElementById('subject').focus(); }
     function closeModal() { document.getElementById('modal').classList.remove('open'); }
 
-    function addSchedule(event) {
-      event.preventDefault();
-      const subject = document.getElementById('subject').value;
-      const time = document.getElementById('time').value;
-      const room = document.getElementById('room').value || 'Chưa cập nhật phòng';
-      const teacher = document.getElementById('teacher').value || 'Chưa cập nhật giáo viên';
-      const row = document.createElement('div');
-      row.className = 'schedule-row';
-      row.innerHTML = '<span class="schedule-time">' + time + '</span><i class="schedule-line"></i><div><strong>' + subject + '</strong><span>' + room + ' · ' + teacher + '</span></div>';
-      document.getElementById('schedule-list').appendChild(row);
-      event.target.reset();
-      closeModal();
+    function readSharedSchedule() {
+      try {
+        const schedule = JSON.parse(localStorage.getItem('schedule.table') || '[]');
+        return Array.isArray(schedule) ? schedule : [];
+      } catch (error) {
+        return [];
+      }
     }
 
-    function sendMessage(event) {
+    function readAssignmentState() {
+      try {
+        const state = JSON.parse(localStorage.getItem(assignmentStorageKey) || '{}');
+        return state && typeof state === 'object' && !Array.isArray(state) ? state : {};
+      } catch (error) {
+        return {};
+      }
+    }
+
+    function updateStudentSummary() {
+      document.getElementById('today-lesson-count').textContent = String(
+        document.querySelectorAll('#schedule-list .schedule-row').length,
+      );
+      document.getElementById('pending-assignment-count').textContent = String(
+        document.querySelectorAll('.check:not(:checked)').length,
+      );
+      document.getElementById('completed-assignment-count').textContent = String(
+        document.querySelectorAll('.check:checked').length,
+      );
+    }
+
+    function renderCurrentWeek() {
+      const labels = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+      const today = new Date();
+      const mondayOffset = (today.getDay() + 6) % 7;
+      const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - mondayOffset);
+      const week = document.getElementById('current-week');
+      week.replaceChildren(...labels.map((label, index) => {
+        const date = new Date(monday);
+        date.setDate(monday.getDate() + index);
+        const day = document.createElement('div');
+        day.className = index === mondayOffset ? 'day today' : 'day';
+        day.setAttribute('aria-label', date.toLocaleDateString('vi-VN'));
+        day.append(document.createTextNode(label));
+        const number = document.createElement('strong');
+        number.textContent = String(date.getDate());
+        day.appendChild(number);
+        return day;
+      }));
+    }
+
+    function restoreAssignmentState() {
+      const state = readAssignmentState();
+      const rows = [...document.querySelectorAll('.assignment')];
+      if (!localStorage.getItem(assignmentStorageKey)) {
+        rows.forEach((row) => {
+          state[row.dataset.assignmentId] = row.querySelector('.check').checked;
+        });
+        localStorage.setItem(assignmentStorageKey, JSON.stringify(state));
+      }
+      rows.forEach((row) => {
+        const checkbox = row.querySelector('.check');
+        const id = row.dataset.assignmentId;
+        if (Object.prototype.hasOwnProperty.call(state, id)) checkbox.checked = Boolean(state[id]);
+        row.classList.toggle('done', checkbox.checked);
+      });
+    }
+
+    function appendScheduleRow(lesson) {
+      const row = document.createElement('div');
+      row.className = 'schedule-row';
+      const time = document.createElement('span');
+      time.className = 'schedule-time';
+      time.textContent = lesson.time;
+      const line = document.createElement('i');
+      line.className = 'schedule-line';
+      const details = document.createElement('div');
+      const subject = document.createElement('strong');
+      subject.textContent = lesson.subject || '';
+      const metadata = document.createElement('span');
+      metadata.textContent = `${lesson.room || 'Chưa cập nhật phòng'} · ${lesson.teacher || 'Chưa cập nhật giáo viên'}`;
+      details.append(subject, metadata);
+      row.append(time, line, details);
+      document.getElementById('schedule-list').appendChild(row);
+    }
+
+    function restoreTodayLessons() {
+      const today = String(new Date().getDay() + 1);
+      readSharedSchedule()
+        .filter((lesson) => String(lesson.day) === today && lesson.time)
+        .sort((left, right) => String(left.time).localeCompare(String(right.time)))
+        .forEach(appendScheduleRow);
+    }
+
+    function addSchedule(event) {
       event.preventDefault();
-      const input = document.getElementById('question');
-      const question = input.value.trim();
-      if (!question) return;
-      const chat = document.getElementById('chat');
-      const userMessage = document.createElement('div');
-      userMessage.className = 'message user';
-      userMessage.textContent = question;
-      chat.appendChild(userMessage);
-      const answer = document.createElement('div');
-      answer.className = 'message';
-      answer.textContent = 'Mình đã nhận câu hỏi. Bạn hãy gửi thêm đề bài hoặc ảnh bài tập để mình hướng dẫn từng bước nhé!';
-      chat.appendChild(answer);
-      input.value = '';
-      chat.scrollTop = chat.scrollHeight;
+      const subject = document.getElementById('subject').value.trim();
+      const time = document.getElementById('time').value;
+      const room = document.getElementById('room').value.trim() || 'Chưa cập nhật phòng';
+      const teacher = document.getElementById('teacher').value.trim() || 'Chưa cập nhật giáo viên';
+      const schedule = readSharedSchedule();
+      const today = String(new Date().getDay() + 1);
+      const session = Number(time.slice(0, 2)) < 12 ? 'morning' : 'afternoon';
+      const usedPeriods = new Set(schedule
+        .filter((lesson) => String(lesson.day) === today && lesson.session === session)
+        .map((lesson) => Number(lesson.period)));
+      let period = 1;
+      while (usedPeriods.has(period) && period <= 5) period += 1;
+      if (period > 5) {
+        showMessage('Không thể thêm tiết', 'Buổi học này đã đủ 5 tiết.');
+        return;
+      }
+      let id = Date.now();
+      while (schedule.some((lesson) => lesson.id === id)) id += 1;
+      const lesson = { id, session, day: today, period, subject, teacher, room, time };
+      schedule.push(lesson);
+      localStorage.setItem('schedule.table', JSON.stringify(schedule));
+      appendScheduleRow(lesson);
+      updateStudentSummary();
+      event.target.reset();
+      closeModal();
     }
 
     function showAllAssignments(event) {
@@ -285,9 +366,55 @@
     document.getElementById('profile-role').textContent = profileRole;
     document.getElementById('welcome-title').textContent = 'Chào bạn, ' + profileName + '.';
     document.getElementById('profile-avatar').textContent = profileName.split(/\s+/).map(function (part) { return part[0]; }).join('').slice(0, 2).toUpperCase();
+    restoreTodayLessons();
+    renderCurrentWeek();
+    restoreAssignmentState();
+    updateStudentSummary();
+
+    async function syncServerProfile() {
+      try {
+        const response = await fetch('/api/session', { cache: 'no-store' });
+        if (!response.ok) {
+          window.location.replace('../Login/');
+          return;
+        }
+        const session = await response.json();
+        if (session.role !== 'student') {
+          window.location.replace(session.role === 'parent' ? '../ChucnangPH.html' : '../Login/');
+          return;
+        }
+        const serverProfile = {
+          ...profile,
+          username: session.username,
+          name: profile.username === session.username && profile.name ? profile.name : session.display_name,
+          className: session.class_name || profileClass,
+          role: session.role,
+        };
+        localStorage.setItem('user.profile', JSON.stringify(serverProfile));
+        document.getElementById('profile-name').textContent = serverProfile.name;
+        document.getElementById('profile-class').textContent = 'Lớp ' + serverProfile.className;
+        document.getElementById('profile-role').textContent = 'Học sinh';
+        document.getElementById('welcome-title').textContent = 'Chào bạn, ' + serverProfile.name + '.';
+        document.getElementById('profile-avatar').textContent = serverProfile.name.split(/\s+/).map(function (part) { return part[0]; }).join('').slice(0, 2).toUpperCase();
+      } catch (error) {
+        console.error('Không thể xác nhận phiên đăng nhập:', error);
+        window.location.replace('../Login/');
+      }
+    }
+    void syncServerProfile();
 
     function logout() {
-      showConfirm('Đăng xuất', 'Bạn có chắc muốn đăng xuất khỏi tài khoản này không?', function () {
+      showConfirm('Đăng xuất', 'Bạn có chắc muốn đăng xuất khỏi tài khoản này không?', async function () {
+        try {
+          const sessionResponse = await fetch('/api/session', { cache: 'no-store' });
+          const session = sessionResponse.ok ? await sessionResponse.json() : {};
+          await fetch('/api/logout', {
+            method: 'POST',
+            headers: session.csrf_token ? { 'X-CSRF-Token': session.csrf_token } : {},
+          });
+        } catch (error) {
+          console.error('Không thể kết thúc phiên đăng nhập trên máy chủ:', error);
+        }
         localStorage.removeItem('user.profile');
         window.location.href = '../Login/';
       });

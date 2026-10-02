@@ -42,9 +42,37 @@
     const profile = JSON.parse(localStorage.getItem(profileKey) || '{}');
     document.getElementById('name').value = profile.name || 'Minh Anh';
     document.getElementById('className').value = profile.className || '8A1';
+    async function syncProfileSession() {
+      try {
+        const response = await fetch('/api/session', { cache: 'no-store' });
+        if (!response.ok) {
+          window.location.replace('../Login/');
+          return;
+        }
+        const session = await response.json();
+        if (session.role !== 'student') {
+          window.location.replace('../Main/');
+          return;
+        }
+        Object.assign(profile, {
+          username: session.username,
+          name: profile.username === session.username && profile.name ? profile.name : session.display_name,
+          className: session.class_name || profile.className || '8A1',
+          role: session.role,
+        });
+        localStorage.setItem(profileKey, JSON.stringify(profile));
+        document.getElementById('name').value = profile.name;
+        document.getElementById('className').value = profile.className;
+      } catch (error) {
+        console.error('Không thể xác nhận phiên đăng nhập:', error);
+        window.location.replace('../Login/');
+      }
+    }
+    void syncProfileSession();
     function saveProfile(event) {
       event.preventDefault();
       localStorage.setItem(profileKey, JSON.stringify({
+        ...profile,
         name: document.getElementById('name').value.trim(),
         className: document.getElementById('className').value.trim()
       }));

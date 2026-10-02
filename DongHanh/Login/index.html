@@ -314,7 +314,10 @@
     .register-submit { width: 100%; height: 44px; border: 0; border-radius: 7px; color: #172b4d; font-weight: 700; background: #E0b0FF; cursor: pointer; }
     .register-message { display: none; margin: 12px 0 0; color: #a52929; font: 12px Arial, sans-serif; }
     .register-message.success { color: #28634e; }
+    .register-message.info { color: #365f78; }
     .register-message.show { display: block; }
+    .register-existing-login { display: none; margin-top: 10px; padding: 0; border: 0; color: #68427c; font: 700 12px Arial, sans-serif; text-decoration: underline; background: transparent; cursor: pointer; }
+    .register-existing-login.show { display: inline-block; }
 
     @media (max-width: 760px) {
       .page { display: block; }
@@ -352,7 +355,7 @@
         <button id="parent-tab" type="button" role="tab" aria-selected="false" onclick="showLogin('parent')">Tài khoản phụ huynh</button>
       </div>
       <p class="login-message" id="login-message" role="alert"></p>
-      <form class="form-card" action="../Main/" method="get" onsubmit="handleLogin(event, 'student')">
+      <form class="form-card" method="post" onsubmit="handleLogin(event, 'student')">
         <h2>Chào mừng trở lại</h2>
         <p class="subheading">Đăng nhập vào tài khoản của bạn để tiếp tục.</p>
 
@@ -383,7 +386,7 @@
       <section class="parent-login" aria-labelledby="parent-login-title">
         <h3 id="parent-login-title">Đăng nhập tài khoản phụ huynh</h3>
         <p>Theo dõi thời khóa biểu và tiến độ học tập của học sinh.</p>
-        <form action="../ChucnangPH.html" method="get" onsubmit="handleLogin(event, 'parent')">
+        <form method="post" onsubmit="handleLogin(event, 'parent')">
           <div class="field">
             <label for="parent-username">Tên đăng nhập phụ huynh</label>
             <input id="parent-username" name="username" type="text" placeholder="Nhập tên đăng nhập" autocomplete="username" required>
@@ -407,6 +410,7 @@
       <div class="field"><label for="register-role">Loại tài khoản</label><select id="register-role"><option value="student">Học sinh</option><option value="parent">Phụ huynh</option></select></div>
       <button class="register-submit" type="submit">Lưu tài khoản</button>
       <p class="register-message" id="register-message"></p>
+      <button class="register-existing-login" id="register-existing-login" type="button" onclick="loginWithExistingAccount()">Đăng nhập tài khoản này</button>
     </form>
   </div>
 
@@ -428,9 +432,17 @@
     async function handleLogin(event, expectedRole) {
       event.preventDefault();
       clearLoginMessage();
-      const form = event.target;
-      const username = form.querySelector('input[name="email"], input[name="username"]').value.trim();
-      const password = form.querySelector('input[type="password"]').value;
+      const form = event.currentTarget;
+      const usernameInput = document.getElementById(expectedRole === 'parent' ? 'parent-username' : 'email');
+      const passwordInput = document.getElementById(expectedRole === 'parent' ? 'parent-password' : 'password');
+      if (!usernameInput || !passwordInput) {
+        showLoginMessage('Không tìm thấy ô đăng nhập. Hãy tải lại trang rồi thử lại.');
+        return;
+      }
+      const username = usernameInput.value.trim();
+      const password = passwordInput.value;
+      const submitButton = form.querySelector('button[type="submit"]');
+      if (submitButton) submitButton.disabled = true;
       try {
         const response = await fetch('../api/login', {
           method: 'POST',
@@ -450,10 +462,12 @@
           showLoginMessage('Vui lòng chọn khu đăng nhập phụ huynh.');
           return;
         }
-        localStorage.setItem('user.profile', JSON.stringify({ name: result.display_name, className: '7A1', role: result.role }));
+        localStorage.setItem('user.profile', JSON.stringify({ username: result.username, name: result.display_name, className: '7A1', role: result.role }));
         window.location.href = result.role === 'parent' ? '../ChucnangPH.html' : '../Main/';
       } catch (error) {
         showLoginMessage('Không thể kết nối máy chủ. Hãy khởi động lại app.py rồi thử lại.');
+      } finally {
+        if (submitButton) submitButton.disabled = false;
       }
     }
 
@@ -469,6 +483,8 @@
 
     function openRegister(event) {
       event.preventDefault();
+      document.getElementById('register-existing-login').classList.remove('show');
+      document.getElementById('register-message').classList.remove('show', 'info', 'success');
       document.getElementById('register-modal').classList.add('open');
       document.getElementById('register-name').focus();
     }
@@ -476,33 +492,67 @@
     function closeRegister() {
       document.getElementById('register-modal').classList.remove('open');
       document.getElementById('register-message').classList.remove('show');
+      document.getElementById('register-existing-login').classList.remove('show');
+    }
+
+    function loginWithExistingAccount() {
+      const role = document.getElementById('register-role').value;
+      const username = document.getElementById('register-username').value.trim();
+      const password = document.getElementById('register-password').value;
+      showLogin(role);
+      document.getElementById(role === 'parent' ? 'parent-username' : 'email').value = username;
+      document.getElementById(role === 'parent' ? 'parent-password' : 'password').value = password;
+      closeRegister();
     }
 
     async function registerAccount(event) {
       event.preventDefault();
+      const form = event.currentTarget;
       const message = document.getElementById('register-message');
-      const response = await fetch('../api/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          display_name: document.getElementById('register-name').value.trim(),
-          username: document.getElementById('register-username').value.trim(),
-          password: document.getElementById('register-password').value,
-          role: document.getElementById('register-role').value
-        })
-      });
-      const result = await response.json();
-      if (!response.ok) {
-        message.classList.remove('success');
-        message.textContent = result.message;
+      const submitButton = form.querySelector('button[type="submit"]');
+      const existingLoginButton = document.getElementById('register-existing-login');
+      existingLoginButton.classList.remove('show');
+      if (submitButton) submitButton.disabled = true;
+      try {
+        const response = await fetch('../api/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            display_name: document.getElementById('register-name').value.trim(),
+            username: document.getElementById('register-username').value.trim(),
+            password: document.getElementById('register-password').value,
+            role: document.getElementById('register-role').value
+          })
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          message.classList.remove('success');
+          message.classList.toggle('info', response.status === 409);
+          if (response.status === 409) {
+            message.textContent = 'Tên đăng nhập này đã tồn tại. Nếu bạn vừa thử đăng ký, tài khoản có thể đã được lưu; hãy thử đăng nhập bằng tài khoản này.';
+            message.classList.add('show');
+            existingLoginButton.classList.add('show');
+            return;
+          }
+          message.textContent = result.message || 'Không thể tạo tài khoản. Hãy thử lại.';
+          message.classList.add('show');
+          return;
+        }
+        message.classList.remove('info');
+        message.classList.add('success');
+        message.textContent = (result.message || 'Tạo tài khoản thành công.') + ' Bạn có thể đăng nhập ngay.';
         message.classList.add('show');
-        return;
+        form.reset();
+        setTimeout(closeRegister, 1800);
+      } catch (error) {
+        message.classList.remove('success');
+        message.classList.add('info');
+        message.textContent = 'Không nhận được phản hồi từ máy chủ. Tài khoản có thể đã được lưu; hãy thử đăng nhập trước khi đăng ký lại.';
+        message.classList.add('show');
+        existingLoginButton.classList.add('show');
+      } finally {
+        if (submitButton) submitButton.disabled = false;
       }
-      message.classList.add('success');
-      message.textContent = result.message + ' Bạn có thể đăng nhập ngay.';
-      message.classList.add('show');
-      event.target.reset();
-      setTimeout(closeRegister, 1800);
     }
 
     function togglePassword() {
