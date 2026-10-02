@@ -84,6 +84,14 @@ class TimetableImageError(ValueError):
     """Anh khong doc duoc thanh bang thoi khoa bieu."""
 
 
+def _target_ocr_dimensions(width: int, height: int) -> tuple[int, int]:
+    longest_side = max(width, height)
+    if longest_side <= OCR_MAX_DIMENSION:
+        return width, height
+    scale = OCR_MAX_DIMENSION / longest_side
+    return max(1, round(width * scale)), max(1, round(height * scale))
+
+
 def _engine() -> Any:
     """Nap OCR mot lan roi dung lai, vi khoi tao model kha nang."""
     global _ENGINE
@@ -132,13 +140,15 @@ def _read_lines(image_bytes: bytes) -> tuple[list[dict[str, Any]], list[float]]:
     if image is None:
         raise TimetableImageError("Không đọc được tệp ảnh. Hãy thử lại với ảnh PNG hoặc JPG.")
 
-    # Chuan hoa moi anh ve kich thuoc vua du cho OCR, tranh anh 4K lam day RAM.
+    # Chi thu nho anh lon; phong to anh nho khong them chi tiet va ton RAM.
     height, width = image.shape[:2]
-    longest_side = max(height, width)
-    if longest_side != OCR_MAX_DIMENSION:
-        scale = OCR_MAX_DIMENSION / longest_side
-        interpolation = cv2.INTER_AREA if scale < 1 else cv2.INTER_CUBIC
-        image = cv2.resize(image, None, fx=scale, fy=scale, interpolation=interpolation)
+    target_width, target_height = _target_ocr_dimensions(width, height)
+    if (target_width, target_height) != (width, height):
+        image = cv2.resize(
+            image,
+            (target_width, target_height),
+            interpolation=cv2.INTER_AREA,
+        )
 
     grid_lines = _detect_grid_lines(image)
 

@@ -35,7 +35,7 @@ services:
         fromService:
           type: web
           name: studysync-ocr
-          property: host
+          envVarKey: RENDER_EXTERNAL_URL
       - key: OCR_SERVICE_SECRET
         sync: false
       # Tiến trình web không tự gửi nhắc nữa; chạy đúng một worker riêng.
