@@ -4,6 +4,7 @@ __pycache__/
 !.env.example
 .streamlit/secrets.toml
 node_modules/
+web-client/dist/
 .pytest_cache/
 *.py[cod]
 *.sqlite

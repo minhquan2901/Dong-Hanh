@@ -26,6 +26,38 @@
 
 Giao diện dùng phong cách Modern Minimalist, nền sáng, điểm nhấn xanh mint/cam và sidebar điều hướng. Dashboard ưu tiên ba thông tin cần quét nhanh: lịch học sắp tới, bài sắp đến hạn và tiến độ tuần. Dữ liệu local dùng JSON để dễ học và chạy nhẹ; khi triển khai lớn có thể chuyển repository sang SQLite hoặc PostgreSQL.
 
+### Frontend React trên Vercel, API trên Render
+
+Frontend mới nằm trong `web-client/` (React + Vite); FastAPI, Neon Postgres và reminder worker tiếp tục chạy trên Render. Đây là giai đoạn chuyển đổi giao diện: đăng nhập/đăng ký, dashboard học sinh/phụ huynh, bài tập và yêu cầu liên kết đã dùng API hiện có. Các trang quản trị, cài đặt tài khoản, tính năng thời khóa biểu nâng cao, PWA và push vẫn được giữ trên giao diện FastAPI hiện tại; nút **Mở phiên bản đầy đủ** dẫn tới giao diện đó.
+
+#### Chạy frontend local
+
+Mở hai terminal trong `BAITHI`. Terminal thứ nhất chạy backend:
+
+```powershell
+python -m uvicorn web_app:app --reload --port 8000
+```
+
+Terminal thứ hai chạy frontend:
+
+```powershell
+cd web-client
+npm install
+npm run dev
+```
+
+Mở URL Vite in ra (thường là `http://localhost:5173`). Proxy dev chuyển `/api` sang `http://127.0.0.1:8000`.
+
+#### Deploy frontend lên Vercel
+
+1. Import repository hiện có vào Vercel và đặt **Root Directory** là `BAITHI/web-client` (không cần tách repo).
+2. Vercel tự nhận Vite; Build Command `npm run build`, Output Directory `dist`.
+3. Thêm Environment Variable `VITE_API_BASE_URL` bằng URL gốc của Render Web Service, ví dụ `https://dong-hanh.onrender.com` (không thêm dấu `/` cuối). Giá trị này được đóng gói vào frontend tại thời điểm build; redeploy frontend sau khi đổi URL.
+4. Trong Render Web Service đặt `STUDYSYNC_CORS_ORIGINS` thành danh sách origin chính xác, cách nhau bằng dấu phẩy. Ví dụ `https://your-project.vercel.app,https://app.example.com`. Không thêm đường dẫn `/` và không dùng `*`.
+5. Redeploy backend Render, sau đó kiểm tra trên domain Vercel: đăng nhập, tạo/hoàn thành nhiệm vụ, dashboard phụ huynh và liên kết học sinh. Nếu cần dùng preview deployment, thêm chính xác origin preview đó vào CORS khi kiểm thử; không cho phép toàn bộ `*.vercel.app`.
+
+Frontend dùng bearer token lưu trong local storage như giao diện hiện tại. Chỉ URL API được đưa vào frontend; không đặt password, database URL, Firebase service account hay secret trong biến `VITE_*`. Đăng nhập vào Vercel frontend **không tự bật push notification**: push/PWA hiện còn được quản lý từ giao diện đầy đủ trên Render.
+
 ## Chạy trên máy
 
 Cần cài Python 3.10 trở lên.
