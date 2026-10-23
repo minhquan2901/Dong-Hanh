@@ -30,6 +30,8 @@ Giao diện dùng phong cách Modern Minimalist, nền sáng, điểm nhấn xan
 
 Frontend React + Vite nằm trong `web-client/`; FastAPI, Neon Postgres và reminder worker tiếp tục chạy trên Render. Frontend Vercel cung cấp giao diện đăng nhập/đăng ký, dashboard học sinh/phụ huynh, bài tập, yêu cầu liên kết, quản lý hồ sơ, bảo mật/PIN, thời khóa biểu và nhận diện lịch từ ảnh, thông báo/push/PWA, báo lỗi/góp ý và quản trị owner. Frontend gọi các API hiện có trên Render, không chuyển secrets hay dữ liệu sang Vercel. Service worker, manifest và icon PWA được phục vụ từ cùng domain Vercel để quyền push hoạt động ổn định.
 
+**Phân vai:** Vercel là địa chỉ người dùng truy cập và chỉ chứa frontend tĩnh; Render cung cấp API HTTPS, tác vụ nền và kết nối Neon. Không deploy secrets/database lên Vercel, không cache API chứa dữ liệu tài khoản, và không đổi URL backend khi chuyển domain frontend.
+
 #### Chạy frontend local
 
 Mở hai terminal trong `BAITHI`. Terminal thứ nhất chạy backend:
@@ -48,13 +50,60 @@ npm run dev
 
 Mở URL Vite in ra (thường là `http://localhost:5173`). Proxy dev chuyển `/api` sang `http://127.0.0.1:8000`.
 
-#### Deploy frontend lên Vercel
+#### Checklist trước khi chuyển đổi
 
-1. Import repository hiện có vào Vercel và đặt **Root Directory** là `BAITHI/web-client` (không cần tách repo).
-2. Vercel tự nhận Vite; Build Command `npm run build`, Output Directory `dist`.
-3. Thêm Environment Variable `VITE_API_BASE_URL` bằng URL gốc của Render Web Service, ví dụ `https://dong-hanh.onrender.com` (không thêm dấu `/` cuối). Giá trị này được đóng gói vào frontend tại thời điểm build; redeploy frontend sau khi đổi URL.
-4. Trong Render Web Service đặt `STUDYSYNC_CORS_ORIGINS` thành danh sách origin chính xác, cách nhau bằng dấu phẩy. Ví dụ `https://your-project.vercel.app,https://app.example.com`. Không thêm đường dẫn `/` và không dùng `*`.
-5. Redeploy backend Render, sau đó kiểm tra trên domain Vercel: đăng nhập, tạo/hoàn thành nhiệm vụ, hồ sơ, bảo mật, thời khóa biểu, thông báo, báo cáo, quản trị owner và liên kết phụ huynh/học sinh. Nếu cần dùng preview deployment, thêm chính xác origin preview đó vào CORS khi kiểm thử; không cho phép toàn bộ `*.vercel.app`.
+- Kiểm tra trạng thái Git và commit sẽ deploy: `git status`, `git log -1 --oneline`, `git fetch origin`. Có thể sao lưu toàn bộ refs trước khi thay đổi bằng `git bundle create ..\dong-hanh-backup.bundle --all` (cất bundle bên ngoài repository, không commit). Xác nhận có thể truy cập lại repository từ GitHub.
+- Sao lưu/kiểm tra khả năng khôi phục Neon theo gói đang dùng; xác nhận `/health` của Render trả HTTP 200 và tài khoản/dữ liệu hiện có vẫn đọc được. Không cần migrate database cho lần chuyển frontend này.
+- Ghi nhận các biến môi trường, nhưng **không** đưa giá trị secret vào Git hoặc Vercel:
+
+| Nền tảng | Biến | Giá trị/phạm vi |
+|---|---|---|
+| Vercel | `VITE_API_BASE_URL` | URL gốc HTTPS của Render Web Service, ví dụ `https://dong-hanh.onrender.com`, không có `/` cuối. Đây là cấu hình công khai được đóng gói vào JavaScript. |
+| Render Web Service | `STUDYSYNC_CORS_ORIGINS` | Origin frontend Vercel và custom domain, phân tách bằng dấu phẩy, không có path/dấu `/` cuối. |
+| Render Web Service + Worker | `PUBLIC_APP_URL` | URL frontend HTTPS trên Vercel (ưu tiên domain chính thức) để liên kết và icon trong push mở đúng giao diện. |
+| Render | `STUDYSYNC_DATABASE_URL`, `STUDYSYNC_SESSION_SECRET`, Firebase service account/VAPID private material, Gemini key, cron secrets | Giữ nguyên ở Render; không sao chép sang Vercel. |
+
+Trong CORS, thêm từng origin dùng thực tế, ví dụ `https://your-project.vercel.app,https://donghanhhoctap.com,https://www.donghanhhoctap.com`. Không thêm đường dẫn và không dùng wildcard `*`/`*.vercel.app`. Với Preview Deployment, chỉ thêm origin cụ thể cần kiểm thử rồi gỡ khi không còn dùng.
+
+#### Triển khai frontend lên Vercel
+
+1. Import repository hiện có vào Vercel; không cần tách repository. Chọn **Root Directory** `BAITHI/web-client`.
+2. Chọn Framework Preset **Vite**, Node.js **22.x**, Build Command `npm run build`, Output Directory `dist`. Giữ Install Command mặc định theo lockfile.
+3. Thêm `VITE_API_BASE_URL` trong Vercel → Project → Settings → Environment Variables cho **Production** và **Preview** nếu cần. Cấu hình được nhúng lúc build nên phải redeploy sau khi sửa. Nếu bỏ sót, frontend hiện lỗi cấu hình rõ ràng thay vì âm thầm gửi request về domain Vercel.
+4. Cập nhật `STUDYSYNC_CORS_ORIGINS` trên Render Web Service với origin Vercel Preview chính xác, lưu và deploy backend; kiểm tra `/health` và preflight/các request API trong DevTools → Network.
+5. Mở Preview URL và kiểm thử checklist ở phần dưới. Sau khi đạt mới gắn domain chính thức, cập nhật CORS + `PUBLIC_APP_URL` thành domain đó, rồi redeploy Render và Vercel.
+
+#### Domain và chuyển đổi không gián đoạn
+
+1. Thêm `donghanhhoctap.com` (và tùy chọn `www.donghanhhoctap.com`) trong Vercel → Project → Settings → Domains. Trước ngày chuyển, giảm TTL bản ghi DNS hiện tại nếu nhà cung cấp cho phép.
+2. Cấu hình DNS theo **đúng giá trị Vercel hiển thị cho domain của project**: domain gốc (`@`) thường dùng A record; `www` thường dùng CNAME. Không xóa/đổi domain `*.onrender.com` của backend và không tự dùng IP mẫu nếu Vercel đưa giá trị khác.
+3. Giữ backend Render cũ chạy trong suốt quá trình. Preview trên Vercel dùng cùng backend và dữ liệu hiện tại; sau khi kiểm thử đăng nhập, role học sinh/phụ huynh/owner, bài tập, lịch, push và mobile, mới đổi DNS frontend.
+4. **Rollback:** nếu frontend mới có lỗi, trỏ DNS về đích frontend Render cũ hoặc rollback deployment Vercel trong Dashboard; giữ nguyên Render API và Neon. Khôi phục bản ghi DNS đã ghi lại, chờ TTL cập nhật, rồi điều tra trên Preview trước khi thử lại. Session trên hai domain không chia sẻ nhau nên người dùng có thể cần đăng nhập lại.
+5. Thông báo bảo trì chỉ cần nếu có thời gian gián đoạn thực tế: “StudySync đang cập nhật giao diện; dữ liệu học tập được giữ nguyên. Nếu chưa vào được, vui lòng thử lại sau ít phút.” Với quy trình Preview → đổi DNS, không cần khóa ghi dữ liệu hoặc lên lịch bảo trì.
+
+#### Kiểm thử giữ nguyên tính năng (Feature Parity)
+
+| Nhóm | Kiểm tra trên domain Vercel |
+|---|---|
+| Tài khoản | Đăng ký, đăng nhập/đăng xuất, khôi phục session sau refresh, hết hạn JWT, PIN; thử từng role học sinh, phụ huynh và owner. |
+| Học tập | Đọc/tạo/sửa/hoàn thành/xóa nhiệm vụ; lịch học và nhập ảnh; dữ liệu vẫn còn sau khi reload và đăng nhập lại. |
+| Phụ huynh | Gửi/yêu cầu liên kết, chấp nhận/từ chối, xem và cập nhật hồ sơ học sinh theo đúng quyền. |
+| API & bảo mật | DevTools không có lỗi CORS/4xx/5xx bất thường; request đi tới host Render; token chỉ gửi qua HTTPS; secret không xuất hiện trong bundle. |
+| Thông báo | Cấu hình push, đăng ký/gỡ thiết bị, thử thông báo và kiểm tra click mở domain Vercel; xác nhận Firebase đã cho phép domain. |
+| Tương thích | Kiểm tra màn hình đăng nhập, dashboard, lịch và biểu mẫu ở mobile (360px), tablet và desktop; kiểm tra thao tác bàn phím và trạng thái lỗi/loading. |
+| Hiệu năng & triển khai | Đo tải trang lần đầu và sau cache; kiểm tra `/health` khi backend vừa ngủ; mở trực tiếp deep link `/owner`, `/account`, `/student/schedule`, `/notifications`. |
+
+#### Tối ưu vận hành sau khi chuyển
+
+- Vercel phục vụ HTML, JS/CSS đã hash và ảnh tĩnh qua CDN. Tài liệu công khai có thể cache theo URL/version; không bật cache dùng chung cho API cá nhân hóa, hồ sơ, JWT hoặc response phụ thuộc tài khoản. Ảnh nội dung lớn nên dùng storage/CDN riêng và lazy-load.
+- Free Web Service của Render có thể cold start. UptimeRobot/Cron-job.org ping `https://<render-service>.onrender.com/health` mỗi 10–14 phút là **best effort**, không bảo đảm uptime và không thay thế chính sách của Render. Nếu cần phản hồi ổn định cho học sinh, chọn gói Render always-on; đừng ping endpoint có tác dụng phụ hoặc endpoint dữ liệu.
+- Theo dõi Render logs, `/health`, tỷ lệ lỗi API và thời gian phản hồi; theo dõi Vercel deployment/build. Chỉ đưa thay đổi CORS/domain vào production sau khi Preview được xác nhận.
+
+#### Lộ trình tính năng
+
+1. **Ngắn hạn:** đo cold start và API latency; cân nhắc Render always-on, giám sát uptime, cache asset công khai/versioned, tối ưu ảnh và kiểm tra responsive/accessibility.
+2. **Trung hạn:** streak/badge có giới hạn hợp lý, biểu đồ tiến độ theo tuần, nhắc lịch có thể tùy chỉnh, ghi chú và flashcard gắn với môn học; lưu dữ liệu qua API và cho người dùng kiểm soát thông báo.
+3. **Dài hạn:** trợ lý AI giải thích bài theo từng bước và phân tích chủ đề cần ôn từ dữ liệu tối thiểu cần thiết; đặt giới hạn chi phí/quota, bảo vệ dữ liệu trẻ em, theo dõi chất lượng. Khi lượng truy cập tăng, đo bottleneck trước khi scale; cân nhắc cache dữ liệu công khai, pool kết nối DB, queue cho tác vụ nền và nâng cấp dịch vụ theo nhu cầu.
 
 Frontend dùng bearer token lưu trong local storage. Chỉ URL API và Firebase web configuration (các giá trị client công khai) được đưa vào frontend; không đặt password, database URL, Firebase service account hay secret trong biến `VITE_*`. Token đăng nhập trên domain Vercel tách biệt với domain Render; sau khi chuyển frontend, người dùng cần đăng nhập lại. Trước khi bật push trên Vercel, thêm domain Vercel vào Firebase project nếu Firebase yêu cầu domain web hợp lệ. Tài khoản service và VAPID private material tiếp tục chỉ ở backend Render; VAPID public key được API cung cấp cho browser.
 
@@ -135,7 +184,7 @@ Khai báo các biến trong Render Environment, không commit giá trị bí m�
 - `FIREBASE_PROJECT_ID` (ví dụ `file-85963`)
 - `FIREBASE_VAPID_KEY` (Firebase Console → Project Settings → Cloud Messaging → Web Push certificates)
 - `FIREBASE_SERVICE_ACCOUNT_JSON` (nội dung JSON service account ghi thành **một dòng**; giữ riêng trong Render Environment, tuyệt đối không commit)
-- `PUBLIC_APP_URL` (URL HTTPS của ứng dụng Render)
+- `PUBLIC_APP_URL` (URL HTTPS của frontend Vercel; domain này được dùng cho liên kết và icon push)
 - `PUSH_CRON_SECRET` (chuỗi ngẫu nhiên dài để bảo vệ endpoint nhắc deadline; đặt cùng giá trị trong GitHub Actions secret)
 
 Sau khi bật push, trình duyệt đăng ký service worker và gắn token FCM với tài khoản học sinh. Khi nhiệm vụ được thêm/hoàn thành hoặc thời khóa biểu thay đổi, thiết bị đã đăng ký sẽ nhận push.

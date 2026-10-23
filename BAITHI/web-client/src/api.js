@@ -1,7 +1,11 @@
 const configuredBase = import.meta.env.VITE_API_BASE_URL?.trim().replace(/\/+$/, "");
-const API_BASE = configuredBase || "";
+const API_BASE = configuredBase || (import.meta.env.PROD ? null : "");
 
 export async function api(path, { token, ...options } = {}) {
+  if (API_BASE === null) {
+    throw new Error("Frontend chưa được cấu hình API. Hãy đặt VITE_API_BASE_URL trỏ đến backend Render rồi deploy lại.");
+  }
+
   const headers = new Headers(options.headers || {});
   if (token) headers.set("Authorization", `Bearer ${token}`);
   if (options.body && !(options.body instanceof FormData) && !headers.has("Content-Type")) {

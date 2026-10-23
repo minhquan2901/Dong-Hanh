@@ -1,16 +1,18 @@
+# Render chỉ chạy FastAPI backend và reminder worker; giao diện người dùng chạy trên Vercel.
 # Cấu hình Render cho StudySync, chạy trên gói Free.
 #
 # Dữ liệu nằm trong Neon Postgres nên không mất khi deploy lại, dù gói Free
 # không có persistent disk. Nhờ vậy ứng dụng chạy được trên Free mà tài khoản,
 # thời khóa biểu và bài tập vẫn giữ nguyên qua mọi lần deploy.
 #
-# Sau khi cấu hình, đặt hai biến môi trường trong Render Dashboard
+# Sau khi cấu hình, đặt các biến môi trường trong Render Dashboard
 # (Settings -> Environment):
 #
 #   STUDYSYNC_DATABASE_URL    -> chuỗi kết nối lấy từ Neon Console
 #   STUDYSYNC_SESSION_SECRET  -> chuỗi ngẫu nhiên từ 32 ký tự trở lên
 #   TIMETABLE_GEMINI_API_KEY  -> Gemini API key, chỉ lưu trong Render Environment
 #   STUDYSYNC_CORS_ORIGINS   -> danh sách domain frontend, phân tách bằng dấu phẩy
+#   PUBLIC_APP_URL            -> domain frontend HTTPS trên Vercel
 #
 # Xem README mục "Chuyển dữ liệu sang Neon" để biết cách lấy các giá trị này
 # và chuyển dữ liệu cũ lên Neon trước lần deploy đầu tiên.
@@ -32,6 +34,8 @@ services:
       - key: STUDYSYNC_SESSION_SECRET
         sync: false
       - key: STUDYSYNC_CORS_ORIGINS
+        sync: false
+      - key: PUBLIC_APP_URL
         sync: false
       - key: TIMETABLE_GEMINI_API_KEY
         sync: false
