@@ -28,7 +28,7 @@ Giao diện dùng phong cách Modern Minimalist, nền sáng, điểm nhấn xan
 
 ### Frontend React trên Vercel, API trên Render
 
-Frontend mới nằm trong `web-client/` (React + Vite); FastAPI, Neon Postgres và reminder worker tiếp tục chạy trên Render. Đây là giai đoạn chuyển đổi giao diện: đăng nhập/đăng ký, dashboard học sinh/phụ huynh, bài tập và yêu cầu liên kết đã dùng API hiện có. Các trang quản trị, cài đặt tài khoản, tính năng thời khóa biểu nâng cao, PWA và push vẫn được giữ trên giao diện FastAPI hiện tại; nút **Mở phiên bản đầy đủ** dẫn tới giao diện đó.
+Frontend React + Vite nằm trong `web-client/`; FastAPI, Neon Postgres và reminder worker tiếp tục chạy trên Render. Frontend Vercel cung cấp giao diện đăng nhập/đăng ký, dashboard học sinh/phụ huynh, bài tập, yêu cầu liên kết, quản lý hồ sơ, bảo mật/PIN, thời khóa biểu và nhận diện lịch từ ảnh, thông báo/push/PWA, báo lỗi/góp ý và quản trị owner. Frontend gọi các API hiện có trên Render, không chuyển secrets hay dữ liệu sang Vercel. Service worker, manifest và icon PWA được phục vụ từ cùng domain Vercel để quyền push hoạt động ổn định.
 
 #### Chạy frontend local
 
@@ -54,9 +54,9 @@ Mở URL Vite in ra (thường là `http://localhost:5173`). Proxy dev chuyển 
 2. Vercel tự nhận Vite; Build Command `npm run build`, Output Directory `dist`.
 3. Thêm Environment Variable `VITE_API_BASE_URL` bằng URL gốc của Render Web Service, ví dụ `https://dong-hanh.onrender.com` (không thêm dấu `/` cuối). Giá trị này được đóng gói vào frontend tại thời điểm build; redeploy frontend sau khi đổi URL.
 4. Trong Render Web Service đặt `STUDYSYNC_CORS_ORIGINS` thành danh sách origin chính xác, cách nhau bằng dấu phẩy. Ví dụ `https://your-project.vercel.app,https://app.example.com`. Không thêm đường dẫn `/` và không dùng `*`.
-5. Redeploy backend Render, sau đó kiểm tra trên domain Vercel: đăng nhập, tạo/hoàn thành nhiệm vụ, dashboard phụ huynh và liên kết học sinh. Nếu cần dùng preview deployment, thêm chính xác origin preview đó vào CORS khi kiểm thử; không cho phép toàn bộ `*.vercel.app`.
+5. Redeploy backend Render, sau đó kiểm tra trên domain Vercel: đăng nhập, tạo/hoàn thành nhiệm vụ, hồ sơ, bảo mật, thời khóa biểu, thông báo, báo cáo, quản trị owner và liên kết phụ huynh/học sinh. Nếu cần dùng preview deployment, thêm chính xác origin preview đó vào CORS khi kiểm thử; không cho phép toàn bộ `*.vercel.app`.
 
-Frontend dùng bearer token lưu trong local storage như giao diện hiện tại. Chỉ URL API được đưa vào frontend; không đặt password, database URL, Firebase service account hay secret trong biến `VITE_*`. Đăng nhập vào Vercel frontend **không tự bật push notification**: push/PWA hiện còn được quản lý từ giao diện đầy đủ trên Render.
+Frontend dùng bearer token lưu trong local storage. Chỉ URL API và Firebase web configuration (các giá trị client công khai) được đưa vào frontend; không đặt password, database URL, Firebase service account hay secret trong biến `VITE_*`. Token đăng nhập trên domain Vercel tách biệt với domain Render; sau khi chuyển frontend, người dùng cần đăng nhập lại. Trước khi bật push trên Vercel, thêm domain Vercel vào Firebase project nếu Firebase yêu cầu domain web hợp lệ. Tài khoản service và VAPID private material tiếp tục chỉ ở backend Render; VAPID public key được API cung cấp cho browser.
 
 ## Chạy trên máy
 
