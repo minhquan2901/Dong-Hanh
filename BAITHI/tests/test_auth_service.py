@@ -163,6 +163,15 @@ def test_pin_login_and_schedule_without_pin(tmp_path, monkeypatch):
         "username": "student01",
     }, headers=session_headers)
     assert schedule.status_code == 400
+    saved_schedule = client.put("/api/schedule/slot", json={
+        "session": "morning", "day": "2", "period": 1, "subject": "Toán", "lecturer": "Cô A",
+        "username": "student01",
+    }, headers=session_headers)
+    assert saved_schedule.status_code == 200
+    assert saved_schedule.json()["schedule"]["subject"] == "Toán"
+    dashboard = client.get("/api/dashboard/student?username=student01", headers=session_headers)
+    assert dashboard.status_code == 200
+    assert dashboard.json()["schedule"][0]["subject"] == "Toán"
     deletion = client.request(
         "DELETE", "/api/schedule/slot?username=student01",
         json={"session": "morning", "day": "2", "period": 99, "username": "student01"},

@@ -5,6 +5,7 @@ import "./styles.css";
 
 const USER_KEY = "study_sync_user";
 const TOKEN_KEY = "study_sync_session_token";
+const APP_CREDIT = "Made by ChiThien (8/1) và MinhQuan (8/2)";
 
 function readSession() {
   try {
@@ -71,7 +72,7 @@ function App() {
 
   const pathname = window.location.pathname.replace(/\/+$/, "") || "/";
   if (pathname === "/owner") {
-    return <div className="app-shell"><header className="topbar"><a className="brand" href="/"><span className="brand-mark">S</span><span>StudySync</span></a></header><OwnerPortal /><footer className="footer">StudySync · Khu vực quản trị</footer></div>;
+    return <div className="app-shell"><header className="topbar"><a className="brand" href="/"><span className="brand-mark">S</span><span>StudySync</span></a></header><OwnerPortal /><footer className="footer">StudySync · Khu vực quản trị · {APP_CREDIT}</footer></div>;
   }
 
   const authenticate = async (payload, action) => {
@@ -114,7 +115,7 @@ function App() {
           notice={notice}
         />
       )}
-      <footer className="footer">StudySync · Cùng xây dựng thói quen học tập tốt</footer>
+      <footer className="footer">StudySync · Cùng xây dựng thói quen học tập tốt · {APP_CREDIT}</footer>
     </div>
   );
 }
@@ -509,14 +510,21 @@ function SchedulePage({ session }) {
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
+    setError("");
     try {
-      const [dashboard, ai] = await Promise.all([
-        api(`/api/dashboard/student?username=${encodeURIComponent(user.username)}`, { token }),
-        api("/api/schedule/import-image/status"),
-      ]);
-      setSlots(dashboard.schedule || []);
-      setAiAvailable(Boolean(ai.available));
+      const dashboard = await api(`/api/dashboard/student?username=${encodeURIComponent(user.username)}`, { token });
+      if (!Array.isArray(dashboard.schedule)) {
+        throw new Error("Máy chủ trả về thời khóa biểu không đúng định dạng. Vui lòng tải lại trang hoặc báo quản trị viên.");
+      }
+      setSlots(dashboard.schedule.filter((slot) => slot && typeof slot === "object"));
     } catch (loadError) { setError(loadError.message); }
+    try {
+      const ai = await api("/api/schedule/import-image/status");
+      setAiAvailable(Boolean(ai?.available));
+    } catch (aiError) {
+      setAiAvailable(false);
+      setError(`Không kiểm tra được chức năng nhận diện lịch từ ảnh: ${aiError.message}`);
+    }
   }, [token, user.username]);
   useEffect(() => { load(); }, [load]);
 
@@ -537,6 +545,7 @@ function SchedulePage({ session }) {
         }),
       });
       setMessage(result.message);
+      setError("");
       event.currentTarget.reset();
       await load();
     } catch (saveError) { setError(saveError.message); }
@@ -553,6 +562,7 @@ function SchedulePage({ session }) {
         }),
       });
       setMessage(result.message);
+      setError("");
       await load();
     } catch (removeError) { setError(removeError.message); }
   };
@@ -584,6 +594,7 @@ function SchedulePage({ session }) {
         body: JSON.stringify({ slots: preview.map((slot) => ({ ...slot, username: user.username })) }),
       });
       setMessage(result.message);
+      setError("");
       setPreview([]);
       await load();
     } catch (saveError) { setError(saveError.message); }
@@ -622,7 +633,7 @@ function SchedulePage({ session }) {
 }
 
 function SlotList({ slots, onRemove }) {
-  return <div className="schedule-list">{slots.map((slot, index) => <article className="schedule-row schedule-row-full" key={`${slot.day}-${slot.session}-${slot.period}-${index}`}>
+  return <div className="schedule-list">{slots.filter((slot) => slot && typeof slot === "object").map((slot, index) => <article className="schedule-row schedule-row-full" key={`${slot.day}-${slot.session}-${slot.period}-${index}`}>
     <span className="schedule-day">Thứ {slot.day}</span>
     <div className="task-main"><strong>{slot.subject}</strong><small>{slot.session === "morning" ? "Sáng" : "Chiều"} · Tiết {slot.period}{slot.lecturer ? ` · ${slot.lecturer}` : ""}</small></div>
     <button className="button button-quiet button-small" onClick={() => onRemove(slot)}>Xóa</button>
@@ -1212,7 +1223,7 @@ function StatCard({ label, value, icon, tone }) {
 function SchedulePanel({ schedule }) {
   return <section className="panel schedule-panel">
     <div className="panel-heading"><div><p className="eyebrow">LỊCH HỌC</p><h2>Thời khóa biểu</h2></div><span className="decor-icon">▦</span></div>
-    {schedule.length ? <div className="schedule-list">{schedule.slice(0, 5).map((lesson, index) => <article className="schedule-row" key={`${lesson.day}-${lesson.period}-${index}`}><span className="schedule-day">Thứ {lesson.day}</span><div><strong>{lesson.subject}</strong><small>Tiết {lesson.period} · {lesson.session === "morning" ? "Buổi sáng" : "Buổi chiều"}</small></div></article>)}</div> : <EmptyState title="Chưa có lịch học" text="Bạn có thể thêm thời khóa biểu trong phiên bản đầy đủ." />}
+    {Array.isArray(schedule) && schedule.length ? <div className="schedule-list">{schedule.filter((lesson) => lesson && typeof lesson === "object").slice(0, 5).map((lesson, index) => <article className="schedule-row" key={`${lesson.day}-${lesson.period}-${index}`}><span className="schedule-day">Thứ {lesson.day}</span><div><strong>{lesson.subject}</strong><small>Tiết {lesson.period} · {lesson.session === "morning" ? "Buổi sáng" : "Buổi chiều"}</small></div></article>)}</div> : <EmptyState title="Chưa có lịch học" text="Lịch học sẽ xuất hiện tại đây sau khi được thêm vào tài khoản học sinh." />}
   </section>;
 }
 

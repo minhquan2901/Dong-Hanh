@@ -19,16 +19,20 @@ export async function api(path, { token, ...options } = {}) {
     throw new Error("Không kết nối được máy chủ. Vui lòng thử lại sau.");
   }
 
-  const data = await response.json().catch(() => ({}));
+  const payload = await response.json().catch(() => null);
+  const data = payload && typeof payload === "object" ? payload : {};
   if (!response.ok) {
     const suggestions = response.headers.get("X-Username-Suggestions");
     const suggestionText = suggestions ? ` Gợi ý tên: ${suggestions.split(",").join(", ")}.` : "";
+    const diagnostic = response.status >= 500
+      ? ` (HTTP ${response.status} tại ${options.method || "GET"} ${path})`
+      : "";
     if (response.status === 401 && token) {
       localStorage.removeItem("study_sync_user");
       localStorage.removeItem("study_sync_session_token");
       window.dispatchEvent(new Event("studysync-session-expired"));
     }
-    throw new Error(`${data.detail || data.message || "Yêu cầu thất bại."}${suggestionText}`);
+    throw new Error(`${data.detail || data.message || "Yêu cầu thất bại."}${suggestionText}${diagnostic}`);
   }
   return data;
 }
