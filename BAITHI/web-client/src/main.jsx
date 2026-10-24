@@ -631,9 +631,51 @@ function SchedulePage({ session }) {
     </section>}
     <section className="panel">
       <div className="panel-heading"><div><p className="eyebrow">LỊCH HIỆN TẠI</p><h2>{slots.length} tiết học</h2></div></div>
-      {slots.length ? <SlotList slots={slots} onRemove={removeSlot} /> : <EmptyState title="Chưa có lịch học" text="Thêm tiết học bằng biểu mẫu hoặc nhận diện từ ảnh." />}
+      {slots.length ? <ScheduleGrid slots={slots} onRemove={removeSlot} /> : <EmptyState title="Chưa có lịch học" text="Thêm tiết học bằng biểu mẫu hoặc nhận diện từ ảnh." />}
     </section>
   </PageFrame>;
+}
+
+function ScheduleGrid({ slots, onRemove }) {
+  const validSlots = slots.filter((slot) =>
+    slot &&
+    typeof slot === "object" &&
+    ["2", "3", "4", "5", "6", "7"].includes(String(slot.day)) &&
+    ["morning", "afternoon"].includes(slot.session) &&
+    Number.isInteger(Number(slot.period)) &&
+    Number(slot.period) >= 1 &&
+    Number(slot.period) <= 7,
+  );
+
+  return <div className="schedule-grid-stack">
+    {[
+      ["morning", "Buổi sáng"],
+      ["afternoon", "Buổi chiều"],
+    ].map(([session, label]) => {
+      const sessionSlots = validSlots.filter((slot) => slot.session === session);
+      if (!sessionSlots.length) return null;
+      return <div className="schedule-grid-section" key={session}>
+        <h3>{label}</h3>
+        <div className="schedule-table-scroll" role="region" aria-label={`Thời khóa biểu ${label.toLowerCase()}`} tabIndex="0">
+          <table className="schedule-table">
+            <thead><tr><th scope="col">Tiết</th>{["2", "3", "4", "5", "6", "7"].map((day) => <th scope="col" key={day}>Thứ {day}</th>)}</tr></thead>
+            <tbody>{[1, 2, 3, 4, 5, 6, 7].map((period) => <tr key={period}>
+              <th scope="row">{period}</th>
+              {["2", "3", "4", "5", "6", "7"].map((day) => {
+                const lessons = sessionSlots.filter((slot) => String(slot.day) === day && Number(slot.period) === period);
+                return <td key={day}>{lessons.map((slot, index) => <article className="schedule-cell-lesson" key={`${slot.id || slot.subject}-${index}`}>
+                  <strong>{slot.subject || "Chưa có tên môn"}</strong>
+                  {slot.lecturer && <small>{slot.lecturer}</small>}
+                  <button className="button button-quiet button-small" onClick={() => onRemove(slot)} aria-label={`Xóa ${slot.subject || "tiết học"} thứ ${day}, tiết ${period}`}>Xóa</button>
+                </article>)}</td>;
+              })}
+            </tr>)}</tbody>
+          </table>
+        </div>
+      </div>;
+    })}
+    {!validSlots.length && <EmptyState title="Chưa có tiết hợp lệ để hiển thị" text="Kiểm tra lại dữ liệu thời khóa biểu hoặc tải lại trang." />}
+  </div>;
 }
 
 function SlotList({ slots, onRemove }) {
