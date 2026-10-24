@@ -385,7 +385,8 @@ function AccountPage({ session, onSignOut }) {
   const updatePin = async (event) => {
     event.preventDefault();
     setMessage(""); setError("");
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const pin = String(form.get("pin"));
     if (pin !== String(form.get("confirm_pin"))) {
       setError("Hai mã PIN chưa khớp.");
@@ -397,14 +398,15 @@ function AccountPage({ session, onSignOut }) {
         body: JSON.stringify({ username: user.username, password: String(form.get("password")), pin }),
       });
       setMessage(result.message);
-      event.currentTarget.reset();
+      formElement.reset();
     } catch (pinError) { setError(pinError.message); }
   };
 
   const updatePinLogin = async (event) => {
     event.preventDefault();
     setMessage(""); setError("");
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const enabled = !pinEnabled;
     try {
       const result = await api("/api/security/pin-login", {
@@ -418,14 +420,15 @@ function AccountPage({ session, onSignOut }) {
       const nextUser = { ...user, pin_login_enabled: result.enabled };
       localStorage.setItem(USER_KEY, JSON.stringify(nextUser));
       setMessage(result.message);
-      event.currentTarget.reset();
+      formElement.reset();
     } catch (pinError) { setError(pinError.message); }
   };
 
   const submitReport = async (event) => {
     event.preventDefault();
     setMessage(""); setError("");
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     try {
       const result = await api("/api/reports", {
         method: "POST", token,
@@ -436,7 +439,7 @@ function AccountPage({ session, onSignOut }) {
         }),
       });
       setMessage(result.message || "Đã gửi góp ý tới quản trị viên.");
-      event.currentTarget.reset();
+      formElement.reset();
     } catch (reportError) { setError(reportError.message); }
   };
 
@@ -531,7 +534,8 @@ function SchedulePage({ session }) {
   const addSlot = async (event) => {
     event.preventDefault();
     setError(""); setMessage("");
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     try {
       const result = await api("/api/schedule/slot", {
         method: "PUT", token,
@@ -546,7 +550,7 @@ function SchedulePage({ session }) {
       });
       setMessage(result.message);
       setError("");
-      event.currentTarget.reset();
+      formElement.reset();
       await load();
     } catch (saveError) { setError(saveError.message); }
   };
