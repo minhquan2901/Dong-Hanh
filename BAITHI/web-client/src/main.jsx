@@ -275,7 +275,7 @@ function Dashboard({ session, onSignOut, pathname }) {
       </nav>
       {error && <div className="message message-error dashboard-message" role="alert">{error}<button className="text-button" onClick={() => setRefreshKey((value) => value + 1)}>Thử lại</button></div>}
       {success && <div className="message message-success dashboard-message" role="status">{success}<button className="message-close" onClick={() => setSuccess("")} aria-label="Đóng">×</button></div>}
-      {loading ? <LoadingState /> : dashboard && user.role === "parent" ? (
+      {loading ? <LoadingOverlay message="Đang tải dữ liệu học tập..." /> : dashboard && user.role === "parent" ? (
         <ParentDashboard data={dashboard} user={user} token={token} />
       ) : dashboard ? (
         <StudentDashboard
@@ -292,11 +292,12 @@ function Dashboard({ session, onSignOut, pathname }) {
   );
 }
 
-function PageFrame({ title, eyebrow, children, backHref = "/" }) {
+function PageFrame({ title, eyebrow, children, backHref = "/", loading = false, loadingMessage }) {
   return <main className="dashboard">
     <div className="page-toolbar"><a className="button button-quiet" href={backHref}>← Tổng quan</a><span className="page-role">StudySync · Bảo mật dữ liệu</span></div>
     <section className="dashboard-hero page-hero"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1></div></section>
     <div className="page-stack">{children}</div>
+    {loading && <LoadingOverlay message={loadingMessage} />}
   </main>;
 }
 
@@ -305,6 +306,7 @@ function AccountPage({ session, onSignOut }) {
   const [profile, setProfile] = useState(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [profileLoading, setProfileLoading] = useState(true);
   const [identityRequired, setIdentityRequired] = useState(
     localStorage.getItem("study_sync_identity_update_required") === "true",
   );
@@ -313,7 +315,8 @@ function AccountPage({ session, onSignOut }) {
   useEffect(() => {
     api(`/api/profile?username=${encodeURIComponent(user.username)}`, { token })
       .then(({ user: current }) => setProfile(current))
-      .catch((loadError) => setError(loadError.message));
+      .catch((loadError) => setError(loadError.message))
+      .finally(() => setProfileLoading(false));
   }, [token, user.username]);
 
   const saveProfile = async (event) => {
@@ -443,7 +446,7 @@ function AccountPage({ session, onSignOut }) {
     } catch (reportError) { setError(reportError.message); }
   };
 
-  return <PageFrame title="Tài khoản & bảo mật" eyebrow="THÔNG TIN CỦA BẠN" backHref={user.role === "parent" ? "/parent" : "/student"}>
+  return <PageFrame title="Tài khoản & bảo mật" eyebrow="THÔNG TIN CỦA BẠN" backHref={user.role === "parent" ? "/parent" : "/student"} loading={profileLoading} loadingMessage="Đang tải hồ sơ...">
     {(message || error) && <div className={`message ${error ? "message-error" : "message-success"}`} role={error ? "alert" : "status"}>{error || message}</div>}
     {identityRequired && <section className="panel">
       <div className="panel-heading"><div><p className="eyebrow">CẦN CẬP NHẬT</p><h2>Xác nhận danh tính tài khoản</h2></div></div>
@@ -510,9 +513,14 @@ function SchedulePage({ session }) {
   const [message, setMessage] = useState("");
   const [aiAvailable, setAiAvailable] = useState(false);
   const [preview, setPreview] = useState([]);
+  const [pendingSlots, setPendingSlots] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const load = useCallback(async () => {
+    setLoading(true);
+    setLoadFailed(false);
     setError("");
     try {
       const dashboard = await api(`/api/dashboard/student?username=${encodeURIComponent(user.username)}`, { token });
@@ -520,42 +528,138 @@ function SchedulePage({ session }) {
         throw new Error("Máy chủ trả về thời khóa biểu không đúng định dạng. Vui lòng tải lại trang hoặc báo quản trị viên.");
       }
       setSlots(dashboard.schedule.filter((slot) => slot && typeof slot === "object"));
-    } catch (loadError) { setError(loadError.message); }
-    try {
-      const ai = await api("/api/schedule/import-image/status");
-      setAiAvailable(Boolean(ai?.available));
-    } catch (aiError) {
-      setAiAvailable(false);
-      setError(`Không kiểm tra được chức năng nhận diện lịch từ ảnh: ${aiError.message}`);
+    } catch (loadError) {
+      setLoadFailed(true);
+      setError(loadError.message);
+    } finally {
+      setLoading(false);
     }
   }, [token, user.username]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    void load();
+    api("/api/schedule/import-image/status")
+      .then((ai) => setAiAvailable(Boolean(ai?.available)))
+      .catch((aiError) => {
+        setAiAvailable(false);
+        setError(`Không kiểm tra được chức năng nhận diện lịch từ ảnh: ${aiError.message}`);
+      });
+  }, [load]);
 
   const addSlot = async (event) => {
-    event.preventDefault();
-    setError(""); setMessage("");
-    const formElement = event.currentTarget;
+    const formElement = event.currentTarget.form;
+    if (!formElement.reportValidity()) return;
     const form = new FormData(formElement);
+    const duration = Number(form.get("duration"));
+    const period = Number(form.get("period"));
+    const subject = String(form.get("subject")).trim();
+    if (!subject) return;
+    if (period + duration - 1 > 7) {
+      setError("Tiết đôi cần có tiết kế tiếp. Hãy chọn tiết bắt đầu từ 1 đến 6.");
+      return;
+    }
+    setBusy(true);
+    setError(""); setMessage("");
     try {
-      const result = await api("/api/schedule/slot", {
-        method: "PUT", token,
-        body: JSON.stringify({
+      const result = await api("/api/schedule/slots", {
+        method: "POST", token,
+        body: JSON.stringify({ slots: Array.from({ length: duration }, (_, index) => ({
           username: user.username,
           session: String(form.get("session")),
           day: String(form.get("day")),
-          period: Number(form.get("period")),
-          subject: String(form.get("subject")).trim(),
+          period: period + index,
+          subject,
           lecturer: String(form.get("lecturer") || "").trim(),
-        }),
+        })) }),
       });
       setMessage(result.message);
       setError("");
-      formElement.reset();
+      formElement.elements.lecturer.value = "";
+      formElement.elements.duration.value = "1";
+      if (period + duration <= 7) formElement.elements.period.value = String(period + duration);
       await load();
     } catch (saveError) { setError(saveError.message); }
+    finally { setBusy(false); }
+  };
+
+  const queueSlot = (event) => {
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const entry = {
+      session: String(form.get("session")),
+      day: String(form.get("day")),
+      period: Number(form.get("period")),
+      duration: Number(form.get("duration")),
+      subject: String(form.get("subject")).trim(),
+      lecturer: String(form.get("lecturer") || "").trim(),
+    };
+    if (!entry.subject) return;
+    if (entry.period + entry.duration - 1 > 7) {
+      setError("Tiết đôi cần có tiết kế tiếp. Hãy chọn tiết bắt đầu từ 1 đến 6.");
+      return;
+    }
+
+    const occupiedPeriods = new Set(
+      Array.from({ length: entry.duration }, (_, index) => entry.period + index),
+    );
+    setPendingSlots((current) => [
+      ...current.filter((queued) => {
+        if (queued.session !== entry.session || queued.day !== entry.day) return true;
+        const queuedPeriods = Array.from(
+          { length: queued.duration },
+          (_, index) => queued.period + index,
+        );
+        return !queuedPeriods.some((period) => occupiedPeriods.has(period));
+      }),
+      entry,
+    ]);
+    setError("");
+    setMessage("");
+    formElement.elements.lecturer.value = "";
+    formElement.elements.duration.value = "1";
+    if (entry.period + entry.duration <= 7) {
+      formElement.elements.period.value = String(entry.period + entry.duration);
+    }
+  };
+
+  const savePendingSlots = async () => {
+    if (!pendingSlots.length) {
+      setMessage("Hãy thêm ít nhất một tiết vào danh sách chờ trước khi lưu.");
+      setError("");
+      return;
+    }
+    if (!window.confirm(`Bạn sắp lưu ${pendingSlots.length} mục thời khóa biểu:\n${pendingSlots.map((slot) => `${slot.subject} · ${slot.lecturer || "—"}`).join("\n")}\n\nTiếp tục lưu?`)) return;
+
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const result = await api("/api/schedule/slots", {
+        method: "POST",
+        token,
+        body: JSON.stringify({
+          slots: pendingSlots.flatMap((entry) => Array.from({ length: entry.duration }, (_, index) => ({
+            username: user.username,
+            session: entry.session,
+            day: entry.day,
+            period: entry.period + index,
+            subject: entry.subject,
+            lecturer: entry.lecturer,
+          }))),
+        }),
+      });
+      setMessage(result.message);
+      setPendingSlots([]);
+      await load();
+    } catch (saveError) {
+      setError(saveError.message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const removeSlot = async (slot) => {
+    setBusy(true);
     setError(""); setMessage("");
     try {
       const result = await api("/api/schedule/slot", {
@@ -569,6 +673,7 @@ function SchedulePage({ session }) {
       setError("");
       await load();
     } catch (removeError) { setError(removeError.message); }
+    finally { setBusy(false); }
   };
 
   const importImage = async (event) => {
@@ -605,23 +710,37 @@ function SchedulePage({ session }) {
     finally { setBusy(false); }
   };
 
-  return <PageFrame title="Thời khóa biểu" eyebrow="SẮP XẾP LỊCH HỌC" backHref="/student">
-    {(error || message) && <div className={`message ${error ? "message-error" : "message-success"}`} role={error ? "alert" : "status"}>{error || message}</div>}
+  return <PageFrame title="Thời khóa biểu" eyebrow="SẮP XẾP LỊCH HỌC" backHref="/student" loading={loading || busy} loadingMessage={loading ? "Đang tải thời khóa biểu..." : "Đang lưu thay đổi..."}>
+    {(error || message) && <div className={`message ${error ? "message-error" : "message-success"}`} role={error ? "alert" : "status"}>{error || message}{loadFailed && <button className="text-button" onClick={() => void load()}>Tải lại thời khóa biểu</button>}</div>}
     <section className="panel">
       <div className="panel-heading"><div><p className="eyebrow">THÊM TIẾT HỌC</p><h2>Nhập lịch học</h2></div></div>
-      <form className="settings-form schedule-form" onSubmit={addSlot}>
+      <form className="settings-form schedule-form" onSubmit={queueSlot}>
         <div className="form-row">
           <label className="field"><span>Buổi</span><select name="session"><option value="morning">Buổi sáng</option><option value="afternoon">Buổi chiều</option></select></label>
           <label className="field"><span>Thứ</span><select name="day">{["2", "3", "4", "5", "6", "7"].map((day) => <option key={day} value={day}>Thứ {day}</option>)}</select></label>
         </div>
         <div className="form-row">
           <label className="field"><span>Tiết</span><select name="period">{[1, 2, 3, 4, 5, 6, 7].map((period) => <option key={period}>{period}</option>)}</select></label>
-          <Field label="Môn học" name="subject" required maxLength="100" />
+          <label className="field"><span>Loại tiết</span><select name="duration"><option value="1">Tiết đơn</option><option value="2">Tiết đôi</option></select></label>
         </div>
-        <Field label="Giáo viên (không bắt buộc)" name="lecturer" maxLength="100" />
-        <div className="toolbar-actions"><button className="button button-primary">Lưu tiết học</button>
+        <div className="form-row">
+          <Field label="Môn học" name="subject" required maxLength="100" />
+          <Field label="Giáo viên (không bắt buộc)" name="lecturer" maxLength="100" />
+        </div>
+        <div className="toolbar-actions">
+          <button className="button button-primary" type="submit" disabled={busy}>Thêm vào danh sách</button>
+          <button className="button button-quiet" type="button" onClick={savePendingSlots} disabled={busy}>Lưu tất cả ({pendingSlots.length})</button>
+          <button className="button button-quiet" type="button" onClick={() => setPendingSlots([])} disabled={busy || !pendingSlots.length}>Xóa danh sách</button>
+          <button className="button button-quiet" type="button" onClick={addSlot} disabled={busy}>Lưu tiết học ngay</button>
           {aiAvailable && <label className={`button button-quiet file-button ${busy ? "disabled" : ""}`}>Tạo thời khóa biểu từ ảnh<input type="file" accept="image/jpeg,image/png,image/webp" onChange={importImage} disabled={busy} /></label>}
         </div>
+        {pendingSlots.length > 0 && <div className="schedule-queue" aria-live="polite">
+          <strong>Danh sách chờ lưu ({pendingSlots.length})</strong>
+          {pendingSlots.map((entry, index) => <div className="schedule-queue-item" key={`${entry.session}-${entry.day}-${entry.period}-${index}`}>
+            <span>{entry.session === "morning" ? "Sáng" : "Chiều"}, thứ {entry.day}, {entry.duration === 2 ? `tiết ${entry.period}-${entry.period + 1} · tiết đôi` : `tiết ${entry.period} · tiết đơn`}: {entry.subject}{entry.lecturer ? ` · ${entry.lecturer}` : ""}</span>
+            <button type="button" onClick={() => setPendingSlots((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Bỏ ${entry.subject} khỏi danh sách chờ`}>Bỏ</button>
+          </div>)}
+        </div>}
       </form>
     </section>
     {preview.length > 0 && <section className="panel">
@@ -631,7 +750,7 @@ function SchedulePage({ session }) {
     </section>}
     <section className="panel">
       <div className="panel-heading"><div><p className="eyebrow">LỊCH HIỆN TẠI</p><h2>{slots.length} tiết học</h2></div></div>
-      {slots.length ? <ScheduleGrid slots={slots} onRemove={removeSlot} /> : <EmptyState title="Chưa có lịch học" text="Thêm tiết học bằng biểu mẫu hoặc nhận diện từ ảnh." />}
+      {loadFailed ? <EmptyState title="Chưa tải được thời khóa biểu" text="Danh sách chưa bị xóa. Kiểm tra kết nối rồi thử tải lại." /> : slots.length ? <ScheduleGrid slots={slots} onRemove={removeSlot} /> : <EmptyState title="Chưa có lịch học" text="Thêm tiết học bằng biểu mẫu hoặc nhận diện từ ảnh." />}
     </section>
   </PageFrame>;
 }
@@ -653,20 +772,20 @@ function ScheduleGrid({ slots, onRemove }) {
       ["afternoon", "Buổi chiều"],
     ].map(([session, label]) => {
       const sessionSlots = validSlots.filter((slot) => slot.session === session);
-      if (!sessionSlots.length) return null;
+      const periodCount = Math.max(5, ...sessionSlots.map((slot) => Number(slot.period)));
       return <div className="schedule-grid-section" key={session}>
         <h3>{label}</h3>
         <div className="schedule-table-scroll" role="region" aria-label={`Thời khóa biểu ${label.toLowerCase()}`} tabIndex="0">
           <table className="schedule-table">
             <thead><tr><th scope="col">Tiết</th>{["2", "3", "4", "5", "6", "7"].map((day) => <th scope="col" key={day}>Thứ {day}</th>)}</tr></thead>
-            <tbody>{[1, 2, 3, 4, 5, 6, 7].map((period) => <tr key={period}>
+            <tbody>{Array.from({ length: periodCount }, (_, index) => index + 1).map((period) => <tr key={period}>
               <th scope="row">{period}</th>
               {["2", "3", "4", "5", "6", "7"].map((day) => {
                 const lessons = sessionSlots.filter((slot) => String(slot.day) === day && Number(slot.period) === period);
                 return <td key={day}>{lessons.map((slot, index) => <article className="schedule-cell-lesson" key={`${slot.id || slot.subject}-${index}`}>
                   <strong>{slot.subject || "Chưa có tên môn"}</strong>
                   {slot.lecturer && <small>{slot.lecturer}</small>}
-                  <button className="button button-quiet button-small" onClick={() => onRemove(slot)} aria-label={`Xóa ${slot.subject || "tiết học"} thứ ${day}, tiết ${period}`}>Xóa</button>
+                  {onRemove && <button className="button button-quiet button-small" onClick={() => onRemove(slot)} aria-label={`Xóa ${slot.subject || "tiết học"} thứ ${day}, tiết ${period}`}>Xóa</button>}
                 </article>)}</td>;
               })}
             </tr>)}</tbody>
@@ -674,7 +793,7 @@ function ScheduleGrid({ slots, onRemove }) {
         </div>
       </div>;
     })}
-    {!validSlots.length && <EmptyState title="Chưa có tiết hợp lệ để hiển thị" text="Kiểm tra lại dữ liệu thời khóa biểu hoặc tải lại trang." />}
+    {slots.length > 0 && !validSlots.length && <EmptyState title="Chưa có tiết hợp lệ để hiển thị" text="Kiểm tra lại dữ liệu thời khóa biểu hoặc tải lại trang." />}
   </div>;
 }
 
@@ -693,9 +812,14 @@ function NotificationPage({ session }) {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [permission, setPermission] = useState("Notification" in window ? Notification.permission : "unsupported");
 
   const load = useCallback(async () => {
+    setLoading(true);
+    setLoadFailed(false);
+    setError("");
     try {
       const [preferences, pushStatus] = await Promise.all([
         api(`/api/push/preferences?username=${encodeURIComponent(user.username)}`, { token }),
@@ -703,7 +827,11 @@ function NotificationPage({ session }) {
       ]);
       setPrefs(preferences.reminders);
       setStatus(pushStatus);
-    } catch (loadError) { setError(loadError.message); }
+    } catch (loadError) {
+      setLoadFailed(true);
+      setError(loadError.message);
+    }
+    finally { setLoading(false); }
   }, [token, user.username]);
   useEffect(() => { load(); }, [load]);
 
@@ -789,8 +917,8 @@ function NotificationPage({ session }) {
   const milestones = reminders.deadline_milestones || [1440, 60, 10, 5];
   const toggle = (key, value) => setPrefs((current) => ({ ...current, [key]: value }));
 
-  return <PageFrame title="Thông báo & nhắc việc" eyebrow="NHẮC ĐÚNG LÚC" backHref={user.role === "parent" ? "/parent" : "/student"}>
-    {(error || message) && <div className={`message ${error ? "message-error" : "message-success"}`} role={error ? "alert" : "status"}>{error || message}</div>}
+  return <PageFrame title="Thông báo & nhắc việc" eyebrow="NHẮC ĐÚNG LÚC" backHref={user.role === "parent" ? "/parent" : "/student"} loading={loading} loadingMessage="Đang tải cài đặt thông báo...">
+    {(error || message) && <div className={`message ${error ? "message-error" : "message-success"}`} role={error ? "alert" : "status"}>{error || message}{loadFailed && <button className="text-button" onClick={() => void load()}>Tải lại cài đặt</button>}</div>}
     <section className="panel">
       <div className="panel-heading"><div><p className="eyebrow">THIẾT BỊ NÀY</p><h2>Thông báo đẩy</h2></div><span className="priority">{permission === "granted" ? "Được cho phép" : permission === "denied" ? "Đang bị chặn" : "Chưa bật"}</span></div>
       <p className="section-help">Bật thông báo để nhận nhắc hạn và cập nhật trên thiết bị này. Trên iPhone/iPad cần mở StudySync từ Màn hình chính.</p>
@@ -800,7 +928,7 @@ function NotificationPage({ session }) {
     </section>
     <section className="panel">
       <div className="panel-heading"><div><p className="eyebrow">CÁ NHÂN HÓA</p><h2>Cài đặt nhắc nhở</h2></div></div>
-      {!prefs ? <LoadingState /> : <>
+      {!prefs ? loadFailed ? <EmptyState title="Chưa tải được cài đặt" text="Kiểm tra kết nối rồi thử tải lại." /> : <LoadingState /> : <>
         <div className="preference-list">
           {user.role === "student" && <label className="preference-row"><span><strong>Nhắc hạn bài tập</strong><small>Thông báo khi nhiệm vụ sắp đến hạn</small></span><input type="checkbox" checked={Boolean(reminders.deadline)} onChange={(event) => { toggle("deadline", event.target.checked); void savePreferences({ deadline: event.target.checked }); }} /></label>}
           {user.role === "student" && <label className="preference-row"><span><strong>Nhắc lịch học</strong><small>Nhắc trước giờ học theo thời khóa biểu</small></span><input type="checkbox" checked={Boolean(reminders.schedule)} onChange={(event) => { toggle("schedule", event.target.checked); void savePreferences({ schedule: event.target.checked }); }} /></label>}
@@ -1097,6 +1225,12 @@ function LoadingState() {
   return <div className="loading-card" role="status"><span className="spinner" /> Đang tải dữ liệu học tập...</div>;
 }
 
+function LoadingOverlay({ message = "Đang tải dữ liệu..." }) {
+  return <div className="loading-overlay" role="status" aria-live="polite">
+    <div className="loading-overlay-card"><span className="spinner" /><strong>{message}</strong><small>Vui lòng đợi một chút, dữ liệu đang được đồng bộ.</small></div>
+  </div>;
+}
+
 function StudentDashboard({ data, user, token, onChanged, onSuccess }) {
   const stats = data.stats || {};
   const tasks = data.assignments || [];
@@ -1157,6 +1291,10 @@ function StudentDashboard({ data, user, token, onChanged, onSuccess }) {
       <StatCard label="Đang chờ" value={stats.pending ?? pendingTasks.length} icon="◷" tone="amber" />
       <StatCard label="Đã hoàn thành" value={stats.completed ?? tasks.length - pendingTasks.length} icon="✓" tone="green" />
       <StatCard label="Tiến độ" value={`${stats.completion_rate ?? 0}%`} icon="↗" tone="violet" />
+    </section>
+    <section className="panel dashboard-schedule-grid">
+      <div className="panel-heading"><div><p className="eyebrow">LỊCH CẢ TUẦN</p><h2>Thời khóa biểu</h2></div><span className="decor-icon">▦</span></div>
+      <ScheduleGrid slots={data.schedule || []} />
     </section>
     <section className="content-grid">
       <div className="panel task-panel">
