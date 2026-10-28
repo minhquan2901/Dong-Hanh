@@ -1,11 +1,46 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { api } from "./api";
+import { api, clearApiCache } from "./api";
 import "./styles.css";
 
 const USER_KEY = "study_sync_user";
 const TOKEN_KEY = "study_sync_session_token";
 const APP_CREDIT = "Made by ChiThien (8/1) và MinhQuan (8/2)";
+const SCHEDULE_CACHE_PREFIX = "study_sync_schedule_cache_v1:";
+
+function scheduleCacheKey(username) {
+  return `${SCHEDULE_CACHE_PREFIX}${encodeURIComponent(String(username).trim().toLowerCase())}`;
+}
+
+function readScheduleCache(username) {
+  try {
+    const cached = localStorage.getItem(scheduleCacheKey(username));
+    if (cached === null) return { slots: [], hasCache: false, error: "" };
+    const slots = JSON.parse(cached);
+    if (!Array.isArray(slots) || slots.some((slot) => !slot || typeof slot !== "object")) {
+      throw new Error("Dữ liệu lịch đã lưu không đúng định dạng.");
+    }
+    return { slots, hasCache: true, error: "" };
+  } catch (error) {
+    return {
+      slots: [],
+      hasCache: false,
+      error: `Không đọc được lịch đã lưu trên thiết bị: ${error.message}`,
+    };
+  }
+}
+
+function writeScheduleCache(username, slots) {
+  const cachedSlots = slots.map(({ id, session, day, period, subject, lecturer }) => ({
+    id,
+    session,
+    day,
+    period,
+    subject,
+    lecturer,
+  }));
+  localStorage.setItem(scheduleCacheKey(username), JSON.stringify(cachedSlots));
+}
 
 function readSession() {
   try {
@@ -29,6 +64,7 @@ function App() {
       });
     }
     const clear = () => {
+      clearApiCache();
       localStorage.removeItem(USER_KEY);
       localStorage.removeItem(TOKEN_KEY);
       setSession(null);
@@ -64,6 +100,7 @@ function App() {
   }, []);
 
   const signOut = useCallback(() => {
+    clearApiCache();
     localStorage.removeItem(USER_KEY);
     localStorage.removeItem(TOKEN_KEY);
     setSession(null);
@@ -223,26 +260,52 @@ function AuthPanel({ mode, setMode, authenticate, notice }) {
 function Dashboard({ session, onSignOut, pathname }) {
   const { user, token } = session;
   const [dashboard, setDashboard] = useState(null);
+  const [scheduleSnapshot, setScheduleSnapshot] = useState(() => (
+    user.role === "student" ? readScheduleCache(user.username) : { slots: [], hasCache: false, error: "" }
+  ));
+  const [scheduleCacheError, setScheduleCacheError] = useState(scheduleSnapshot.error);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [success, setSuccess] = useState("");
+  const hasLoadedDashboard = useRef(false);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  const refresh = useCallback(async ({ forceRefresh = false } = {}) => {
+    if (hasLoadedDashboard.current) setRefreshing(true);
+    else setLoading(true);
     setError("");
     try {
       const path = user.role === "parent" ? "/api/dashboard/parent" : "/api/dashboard/student";
-      const data = await api(`${path}?username=${encodeURIComponent(user.username)}`, { token });
+      const data = await api(`${path}?username=${encodeURIComponent(user.username)}`, { token, forceRefresh });
       setDashboard(data);
+      hasLoadedDashboard.current = true;
+      if (user.role === "student" && Array.isArray(data.schedule)) {
+        setScheduleSnapshot({ slots: data.schedule, hasCache: true, error: "" });
+        try {
+          writeScheduleCache(user.username, data.schedule);
+          setScheduleCacheError("");
+        } catch (cacheError) {
+          setScheduleCacheError(`Không lưu được bản thời khóa biểu trên thiết bị: ${cacheError.message}`);
+        }
+      }
     } catch (loadError) {
       setError(loadError.message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [token, user.role, user.username]);
 
-  useEffect(() => { refresh(); }, [refresh, refreshKey]);
+  useEffect(() => {
+    if (
+      pathname === "/account"
+      || pathname === "/notifications"
+      || pathname === "/student/schedule"
+      || window.location.hash === "#schedule"
+    ) return;
+    refresh();
+  }, [pathname, refresh, refreshKey]);
 
   const savedName = user.full_name || user.username;
   if (pathname === "/account") {
@@ -272,10 +335,15 @@ function Dashboard({ session, onSignOut, pathname }) {
         {user.role === "student" && <a href="/student/schedule">Thời khóa biểu</a>}
         <a href="/notifications">Thông báo</a>
         <a href="/account">Tài khoản & bảo mật</a>
+        <button className="nav-refresh" onClick={() => void refresh({ forceRefresh: true })} disabled={loading || refreshing}>{refreshing ? "Đang tải..." : "Làm mới"}</button>
       </nav>
-      {error && <div className="message message-error dashboard-message" role="alert">{error}<button className="text-button" onClick={() => setRefreshKey((value) => value + 1)}>Thử lại</button></div>}
+      {error && <div className="message message-error dashboard-message" role="alert">{error}<button className="text-button" onClick={() => void refresh({ forceRefresh: true })}>Thử lại</button></div>}
+      {scheduleCacheError && <div className="message message-error dashboard-message" role="alert">{scheduleCacheError}</div>}
       {success && <div className="message message-success dashboard-message" role="status">{success}<button className="message-close" onClick={() => setSuccess("")} aria-label="Đóng">×</button></div>}
-      {loading ? <LoadingOverlay message="Đang tải dữ liệu học tập..." /> : dashboard && user.role === "parent" ? (
+      {loading && user.role === "student" && scheduleSnapshot.hasCache ? <>
+        <CachedSchedulePanel slots={scheduleSnapshot.slots} />
+        <LoadingState />
+      </> : loading ? <LoadingOverlay message="Đang tải dữ liệu học tập..." /> : dashboard && user.role === "parent" ? (
         <ParentDashboard data={dashboard} user={user} token={token} />
       ) : dashboard ? (
         <StudentDashboard
@@ -290,6 +358,14 @@ function Dashboard({ session, onSignOut, pathname }) {
       <div className="legacy-callout"><div><strong>StudySync trên Vercel</strong><span>Giao diện được phục vụ từ Vercel; API và dữ liệu vẫn an toàn trên Render.</span></div><a className="button button-quiet" href="/account">Quản lý tài khoản</a></div>
     </main>
   );
+}
+
+function CachedSchedulePanel({ slots }) {
+  return <section className="panel dashboard-schedule-grid">
+    <div className="panel-heading"><div><p className="eyebrow">ĐANG ĐỒNG BỘ</p><h2>Thời khóa biểu đã lưu trên thiết bị</h2></div><span className="decor-icon">▦</span></div>
+    <ScheduleGrid slots={slots} />
+    <p className="section-help">Đây là bản xem gần nhất trên thiết bị. Lịch sẽ tự cập nhật khi máy chủ trả dữ liệu mới.</p>
+  </section>;
 }
 
 function PageFrame({ title, eyebrow, children, backHref = "/", loading = false, loadingMessage }) {
@@ -508,44 +584,58 @@ function Field({ label, ...props }) {
 
 function SchedulePage({ session }) {
   const { user, token } = session;
-  const [slots, setSlots] = useState([]);
+  const [initialScheduleCache] = useState(() => readScheduleCache(user.username));
+  const [slots, setSlots] = useState(initialScheduleCache.slots);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [aiAvailable, setAiAvailable] = useState(false);
+  const [cacheError, setCacheError] = useState(initialScheduleCache.error);
   const [preview, setPreview] = useState([]);
   const [pendingSlots, setPendingSlots] = useState([]);
   const [busy, setBusy] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialScheduleCache.hasCache);
+  const [refreshing, setRefreshing] = useState(initialScheduleCache.hasCache);
+  const [isStale, setIsStale] = useState(initialScheduleCache.hasCache);
   const [loadFailed, setLoadFailed] = useState(false);
+  const hasScheduleSnapshot = useRef(initialScheduleCache.hasCache);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (forceRefresh = false) => {
+    const showCachedSnapshot = hasScheduleSnapshot.current;
+    setLoading(!showCachedSnapshot);
+    setRefreshing(showCachedSnapshot);
+    setIsStale(showCachedSnapshot);
     setLoadFailed(false);
     setError("");
     try {
-      const dashboard = await api(`/api/dashboard/student?username=${encodeURIComponent(user.username)}`, { token });
-      if (!Array.isArray(dashboard.schedule)) {
+      const result = await api(`/api/schedule/slots?username=${encodeURIComponent(user.username)}`, { token, forceRefresh });
+      if (!Array.isArray(result.schedule)) {
         throw new Error("Máy chủ trả về thời khóa biểu không đúng định dạng. Vui lòng tải lại trang hoặc báo quản trị viên.");
       }
-      setSlots(dashboard.schedule.filter((slot) => slot && typeof slot === "object"));
+      const freshSlots = result.schedule.filter((slot) => slot && typeof slot === "object");
+      setSlots(freshSlots);
+      hasScheduleSnapshot.current = true;
+      setIsStale(false);
+      try {
+        writeScheduleCache(user.username, freshSlots);
+        setCacheError("");
+      } catch (cacheWriteError) {
+        setCacheError(`Không lưu được bản thời khóa biểu trên thiết bị: ${cacheWriteError.message}`);
+      }
     } catch (loadError) {
       setLoadFailed(true);
-      setError(loadError.message);
+      setError(showCachedSnapshot
+        ? `Chưa đồng bộ được thời khóa biểu mới nhất. Đang hiện bản đã lưu: ${loadError.message}`
+        : loadError.message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [token, user.username]);
   useEffect(() => {
     void load();
-    api("/api/schedule/import-image/status")
-      .then((ai) => setAiAvailable(Boolean(ai?.available)))
-      .catch((aiError) => {
-        setAiAvailable(false);
-        setError(`Không kiểm tra được chức năng nhận diện lịch từ ảnh: ${aiError.message}`);
-      });
   }, [load]);
 
   const addSlot = async (event) => {
+    event.preventDefault();
     const formElement = event.currentTarget.form;
     if (!formElement.reportValidity()) return;
     const form = new FormData(formElement);
@@ -559,25 +649,29 @@ function SchedulePage({ session }) {
     }
     setBusy(true);
     setError(""); setMessage("");
+    const slotsToSave = Array.from({ length: duration }, (_, index) => ({
+      id: `optimistic-${Date.now()}-${index}`,
+      username: user.username,
+      session: String(form.get("session")),
+      day: String(form.get("day")),
+      period: period + index,
+      subject,
+      lecturer: String(form.get("lecturer") || "").trim(),
+    }));
+    const previousSlots = slots;
+    setSlots((current) => mergeScheduleSlots(current, slotsToSave));
     try {
       const result = await api("/api/schedule/slots", {
         method: "POST", token,
-        body: JSON.stringify({ slots: Array.from({ length: duration }, (_, index) => ({
-          username: user.username,
-          session: String(form.get("session")),
-          day: String(form.get("day")),
-          period: period + index,
-          subject,
-          lecturer: String(form.get("lecturer") || "").trim(),
-        })) }),
+        body: JSON.stringify({ slots: slotsToSave }),
       });
       setMessage(result.message);
       setError("");
       formElement.elements.lecturer.value = "";
       formElement.elements.duration.value = "1";
       if (period + duration <= 7) formElement.elements.period.value = String(period + duration);
-      await load();
-    } catch (saveError) { setError(saveError.message); }
+      await load(true);
+    } catch (saveError) { setSlots(previousSlots); setError(saveError.message); }
     finally { setBusy(false); }
   };
 
@@ -633,25 +727,28 @@ function SchedulePage({ session }) {
     setBusy(true);
     setError("");
     setMessage("");
+    const slotsToSave = pendingSlots.flatMap((entry, entryIndex) => Array.from({ length: entry.duration }, (_, index) => ({
+      id: `optimistic-${Date.now()}-${entryIndex}-${index}`,
+      username: user.username,
+      session: entry.session,
+      day: entry.day,
+      period: entry.period + index,
+      subject: entry.subject,
+      lecturer: entry.lecturer,
+    })));
+    const previousSlots = slots;
+    setSlots((current) => mergeScheduleSlots(current, slotsToSave));
     try {
       const result = await api("/api/schedule/slots", {
         method: "POST",
         token,
-        body: JSON.stringify({
-          slots: pendingSlots.flatMap((entry) => Array.from({ length: entry.duration }, (_, index) => ({
-            username: user.username,
-            session: entry.session,
-            day: entry.day,
-            period: entry.period + index,
-            subject: entry.subject,
-            lecturer: entry.lecturer,
-          }))),
-        }),
+        body: JSON.stringify({ slots: slotsToSave }),
       });
       setMessage(result.message);
       setPendingSlots([]);
-      await load();
+      await load(true);
     } catch (saveError) {
+      setSlots(previousSlots);
       setError(saveError.message);
     } finally {
       setBusy(false);
@@ -661,6 +758,8 @@ function SchedulePage({ session }) {
   const removeSlot = async (slot) => {
     setBusy(true);
     setError(""); setMessage("");
+    const previousSlots = slots;
+    setSlots((current) => current.filter((item) => !sameScheduleSlot(item, slot)));
     try {
       const result = await api("/api/schedule/slot", {
         method: "DELETE", token,
@@ -671,8 +770,8 @@ function SchedulePage({ session }) {
       });
       setMessage(result.message);
       setError("");
-      await load();
-    } catch (removeError) { setError(removeError.message); }
+      await load(true);
+    } catch (removeError) { setSlots(previousSlots); setError(removeError.message); }
     finally { setBusy(false); }
   };
 
@@ -684,6 +783,10 @@ function SchedulePage({ session }) {
     const body = new FormData();
     body.append("file", file);
     try {
+      const imageStatus = await api("/api/schedule/import-image/status");
+      if (!imageStatus.available) {
+        throw new Error("Chức năng nhận diện ảnh chưa được bật trên máy chủ.");
+      }
       const result = await api("/api/schedule/import-image", {
         method: "POST", token,
         headers: { "X-Username": user.username },
@@ -697,21 +800,31 @@ function SchedulePage({ session }) {
 
   const savePreview = async () => {
     setBusy(true); setError(""); setMessage("");
+    const slotsToSave = preview.map((slot, index) => ({
+      ...slot,
+      id: `optimistic-${Date.now()}-${index}`,
+      username: user.username,
+    }));
+    const previousSlots = slots;
+    setSlots((current) => mergeScheduleSlots(current, slotsToSave));
     try {
       const result = await api("/api/schedule/slots", {
         method: "POST", token,
-        body: JSON.stringify({ slots: preview.map((slot) => ({ ...slot, username: user.username })) }),
+        body: JSON.stringify({ slots: slotsToSave }),
       });
       setMessage(result.message);
       setError("");
       setPreview([]);
-      await load();
-    } catch (saveError) { setError(saveError.message); }
+      await load(true);
+    } catch (saveError) { setSlots(previousSlots); setError(saveError.message); }
     finally { setBusy(false); }
   };
 
-  return <PageFrame title="Thời khóa biểu" eyebrow="SẮP XẾP LỊCH HỌC" backHref="/student" loading={loading || busy} loadingMessage={loading ? "Đang tải thời khóa biểu..." : "Đang lưu thay đổi..."}>
+  return <PageFrame title="Thời khóa biểu" eyebrow="SẮP XẾP LỊCH HỌC" backHref="/student" loading={loading} loadingMessage="Đang tải thời khóa biểu...">
     {(error || message) && <div className={`message ${error ? "message-error" : "message-success"}`} role={error ? "alert" : "status"}>{error || message}{loadFailed && <button className="text-button" onClick={() => void load()}>Tải lại thời khóa biểu</button>}</div>}
+    {cacheError && <div className="message message-error" role="alert">{cacheError}</div>}
+    {refreshing && <p className="schedule-sync-status" role="status"><span className="spinner" /> Đang đồng bộ lịch mới nhất; bạn vẫn có thể xem lịch đã lưu.</p>}
+    {isStale && loadFailed && <p className="section-help">Đang sử dụng bản lịch đã lưu trên thiết bị do chưa kết nối được máy chủ.</p>}
     <section className="panel">
       <div className="panel-heading"><div><p className="eyebrow">THÊM TIẾT HỌC</p><h2>Nhập lịch học</h2></div></div>
       <form className="settings-form schedule-form" onSubmit={queueSlot}>
@@ -732,7 +845,7 @@ function SchedulePage({ session }) {
           <button className="button button-quiet" type="button" onClick={savePendingSlots} disabled={busy}>Lưu tất cả ({pendingSlots.length})</button>
           <button className="button button-quiet" type="button" onClick={() => setPendingSlots([])} disabled={busy || !pendingSlots.length}>Xóa danh sách</button>
           <button className="button button-quiet" type="button" onClick={addSlot} disabled={busy}>Lưu tiết học ngay</button>
-          {aiAvailable && <label className={`button button-quiet file-button ${busy ? "disabled" : ""}`}>Tạo thời khóa biểu từ ảnh<input type="file" accept="image/jpeg,image/png,image/webp" onChange={importImage} disabled={busy} /></label>}
+          <label className={`button button-quiet file-button ${busy ? "disabled" : ""}`}>Tạo thời khóa biểu từ ảnh<input type="file" accept="image/jpeg,image/png,image/webp" onChange={importImage} disabled={busy} /></label>
         </div>
         {pendingSlots.length > 0 && <div className="schedule-queue" aria-live="polite">
           <strong>Danh sách chờ lưu ({pendingSlots.length})</strong>
@@ -749,10 +862,27 @@ function SchedulePage({ session }) {
       <SlotList slots={preview} onRemove={(slot) => setPreview((items) => items.filter((item) => item !== slot))} />
     </section>}
     <section className="panel">
-      <div className="panel-heading"><div><p className="eyebrow">LỊCH HIỆN TẠI</p><h2>{slots.length} tiết học</h2></div></div>
-      {loadFailed ? <EmptyState title="Chưa tải được thời khóa biểu" text="Danh sách chưa bị xóa. Kiểm tra kết nối rồi thử tải lại." /> : slots.length ? <ScheduleGrid slots={slots} onRemove={removeSlot} /> : <EmptyState title="Chưa có lịch học" text="Thêm tiết học bằng biểu mẫu hoặc nhận diện từ ảnh." />}
+      <div className="panel-heading"><div><p className="eyebrow">LỊCH HIỆN TẠI</p><h2>{slots.length} tiết học</h2></div><button className="button button-quiet" onClick={() => void load(true)} disabled={busy || refreshing}>{refreshing ? "Đang tải..." : "Làm mới"}</button></div>
+      {loadFailed && !hasScheduleSnapshot.current ? <EmptyState title="Chưa tải được thời khóa biểu" text="Danh sách chưa bị xóa. Kiểm tra kết nối rồi thử tải lại." /> : slots.length ? <ScheduleGrid slots={slots} onRemove={removeSlot} /> : <EmptyState title="Chưa có lịch học" text="Thêm tiết học bằng biểu mẫu hoặc nhận diện từ ảnh." />}
     </section>
   </PageFrame>;
+}
+
+function sameScheduleSlot(left, right) {
+  return left.session === right.session
+    && String(left.day) === String(right.day)
+    && Number(left.period) === Number(right.period);
+}
+
+function mergeScheduleSlots(current, incoming) {
+  const slotsByPosition = new Map(current.map((slot) => [
+    `${slot.session}:${slot.day}:${slot.period}`,
+    slot,
+  ]));
+  incoming.forEach((slot) => {
+    slotsByPosition.set(`${slot.session}:${slot.day}:${slot.period}`, slot);
+  });
+  return Array.from(slotsByPosition.values());
 }
 
 function ScheduleGrid({ slots, onRemove }) {
@@ -1233,8 +1363,14 @@ function LoadingOverlay({ message = "Đang tải dữ liệu..." }) {
 
 function StudentDashboard({ data, user, token, onChanged, onSuccess }) {
   const stats = data.stats || {};
-  const tasks = data.assignments || [];
+  const [tasks, setTasks] = useState(data.assignments || []);
+  const [creating, setCreating] = useState(false);
+  useEffect(() => setTasks(data.assignments || []), [data.assignments]);
   const pendingTasks = tasks.filter((task) => !task.completed);
+  const completedTasks = tasks.length - pendingTasks.length;
+  const completionRate = tasks.length
+    ? Math.round((completedTasks / tasks.length) * 100)
+    : Number(stats.completion_rate || 0);
   const [showCreate, setShowCreate] = useState(false);
   const [busyId, setBusyId] = useState("");
   const [taskError, setTaskError] = useState("");
@@ -1242,6 +1378,15 @@ function StudentDashboard({ data, user, token, onChanged, onSuccess }) {
   const updateTask = async (task, action) => {
     setBusyId(String(task.id));
     setTaskError("");
+    const originalIndex = tasks.findIndex((item) => String(item.id) === String(task.id));
+    if (action === "delete") {
+      setTasks((current) => current.filter((item) => String(item.id) !== String(task.id)));
+    } else {
+      const completed = !task.completed;
+      setTasks((current) => current.map((item) => String(item.id) === String(task.id)
+        ? { ...item, completed }
+        : item));
+    }
     try {
       if (action === "delete") {
         await api(`/api/assignments/${encodeURIComponent(task.id)}?username=${encodeURIComponent(user.username)}`, { method: "DELETE", token });
@@ -1256,6 +1401,15 @@ function StudentDashboard({ data, user, token, onChanged, onSuccess }) {
       }
       onChanged();
     } catch (error) {
+      if (action === "delete") {
+        setTasks((current) => current.some((item) => String(item.id) === String(task.id))
+          ? current
+          : [...current.slice(0, Math.max(originalIndex, 0)), task, ...current.slice(Math.max(originalIndex, 0))]);
+      } else {
+        setTasks((current) => current.map((item) => String(item.id) === String(task.id)
+          ? { ...item, completed: Boolean(task.completed) }
+          : item));
+      }
       setTaskError(error.message);
     } finally {
       setBusyId("");
@@ -1275,22 +1429,32 @@ function StudentDashboard({ data, user, token, onChanged, onSuccess }) {
       priority: String(values.get("priority")),
       username: user.username,
     };
+    const optimisticId = `optimistic-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const optimisticTask = { ...payload, id: optimisticId, completed: false, status: "pending" };
+    setCreating(true);
+    setTasks((current) => [...current, optimisticTask]);
     try {
-      await api("/api/assignments", { method: "POST", token, body: JSON.stringify(payload) });
+      const result = await api("/api/assignments", { method: "POST", token, body: JSON.stringify(payload) });
+      if (result.assignment) {
+        setTasks((current) => current.map((task) => task.id === optimisticId ? result.assignment : task));
+      }
       setShowCreate(false);
       onSuccess("Đã thêm nhiệm vụ mới.");
       onChanged();
     } catch (error) {
+      setTasks((current) => current.filter((task) => task.id !== optimisticId));
       setTaskError(error.message);
+    } finally {
+      setCreating(false);
     }
   };
 
   return <>
     <section className="stats-grid">
-      <StatCard label="Tổng nhiệm vụ" value={stats.total ?? tasks.length} icon="▤" tone="blue" />
-      <StatCard label="Đang chờ" value={stats.pending ?? pendingTasks.length} icon="◷" tone="amber" />
-      <StatCard label="Đã hoàn thành" value={stats.completed ?? tasks.length - pendingTasks.length} icon="✓" tone="green" />
-      <StatCard label="Tiến độ" value={`${stats.completion_rate ?? 0}%`} icon="↗" tone="violet" />
+      <StatCard label="Tổng nhiệm vụ" value={tasks.length} icon="▤" tone="blue" />
+      <StatCard label="Đang chờ" value={pendingTasks.length} icon="◷" tone="amber" />
+      <StatCard label="Đã hoàn thành" value={completedTasks} icon="✓" tone="green" />
+      <StatCard label="Tiến độ" value={`${completionRate}%`} icon="↗" tone="violet" />
     </section>
     <section className="panel dashboard-schedule-grid">
       <div className="panel-heading"><div><p className="eyebrow">LỊCH CẢ TUẦN</p><h2>Thời khóa biểu</h2></div><span className="decor-icon">▦</span></div>
@@ -1313,7 +1477,7 @@ function StudentDashboard({ data, user, token, onChanged, onSuccess }) {
             <label className="field"><span>Giờ</span><input name="due_time" type="time" defaultValue="23:59" /></label>
           </div>
           <label className="field"><span>Ghi chú (không bắt buộc)</span><textarea name="description" rows="2" maxLength="500" placeholder="Thêm chi tiết để dễ nhớ..." /></label>
-          <button className="button button-primary" type="submit">Lưu nhiệm vụ</button>
+          <button className="button button-primary" type="submit" disabled={creating}>{creating ? "Đang lưu..." : "Lưu nhiệm vụ"}</button>
         </form>}
         {taskError && <p className="inline-error" role="alert">{taskError}</p>}
         {tasks.length ? <div className="task-list">

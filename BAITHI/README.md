@@ -73,6 +73,16 @@ Trong CORS, thêm từng origin dùng thực tế, ví dụ `https://your-projec
 4. Cập nhật `STUDYSYNC_CORS_ORIGINS` trên Render Web Service với origin Vercel Preview chính xác, lưu và deploy backend; kiểm tra `/health` và preflight/các request API trong DevTools → Network.
 5. Mở Preview URL và kiểm thử checklist ở phần dưới. Sau khi đạt mới gắn domain chính thức, cập nhật CORS + `PUBLIC_APP_URL` thành domain đó, rồi redeploy Render và Vercel.
 
+#### Đo độ trễ thời khóa biểu
+
+- Mở DevTools → Console và so sánh các dòng `[StudySync API timing]` của `GET /api/schedule/slots`: `requestNumber: 1` là lần gọi đầu trong tab; `headersMs` đo thời gian tới khi nhận response headers; `totalMs` gồm cả tải/đọc JSON. Yêu cầu từ 1 giây trở lên được ghi cảnh báo. Không ghi username hay token vào phép đo.
+- Trang thời khóa biểu dùng endpoint chỉ trả danh sách tiết, không tải lại toàn bộ dashboard. Kiểm tra ảnh chỉ được gọi khi người dùng chọn ảnh.
+- Lịch xem gần nhất được lưu trong trình duyệt theo username để hiện ngay khi mở trang; ứng dụng vẫn tải dữ liệu mới từ backend. Cache chỉ được thay bằng response thành công và API lịch được đánh dấu `private, no-store`; nếu backend chưa phản hồi, giao diện báo đang dùng bản cũ. Cache này không đồng bộ giữa thiết bị và không bảo đảm dữ liệu mới luôn về dưới 1 giây khi Render Free đang ngủ.
+- Dashboard học sinh/phụ huynh và danh sách tiết được cache trong `sessionStorage` theo tài khoản để chuyển trang trong cùng phiên không gọi lại API liên tục. Nút **Làm mới** buộc đồng bộ với máy chủ; thao tác ghi thành công tự xóa cache liên quan. Cache hết hạn sau 5 phút, chỉ tồn tại trong phiên tab và không thay thế dữ liệu server.
+- Hoàn thành/xóa/thêm nhiệm vụ và thêm/xóa tiết được cập nhật lạc quan trên giao diện trước khi request ghi hoàn tất; nếu server từ chối, trạng thái sẽ được hoàn tác và lỗi hiển thị. SQLite local đã có index cho chủ sở hữu + thời khóa biểu, chủ sở hữu + hạn bài tập và nhắc hạn chưa hoàn thành.
+- Các lần ghi lịch/bài tập tiếp tục chạy background task cho thống kê và push sau khi response đã gửi; không chuyển gửi thông báo vào luồng cập nhật giao diện.
+- So sánh lần đầu sau thời gian không dùng với lần tải tiếp theo trong Network. Nếu chỉ lần đầu chậm, đó thường là cold start của gói Free; nếu mọi lần đều chậm, xem `headersMs` để điều tra backend/database. Đảm bảo `VITE_API_BASE_URL` là URL Render thật và origin frontend thực tế có trong `STUDYSYNC_CORS_ORIGINS`.
+
 #### Domain và chuyển đổi không gián đoạn
 
 1. Thêm `donghanhhoctap.com` (và tùy chọn `www.donghanhhoctap.com`) trong Vercel → Project → Settings → Domains. Trước ngày chuyển, giảm TTL bản ghi DNS hiện tại nếu nhà cung cấp cho phép.

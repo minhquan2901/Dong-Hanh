@@ -136,6 +136,7 @@ a { color: inherit; }
 .loading-overlay-card .spinner { width: 32px; height: 32px; border-width: 3px; }
 .loading-overlay-card strong { color: #52665a; font-size: 14px; }
 .loading-overlay-card small { color: #8b9990; font-size: 11px; line-height: 1.5; }
+.schedule-sync-status { display: flex; align-items: center; gap: 8px; margin: 0; color: #718077; font-size: 11px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .student-card { display: flex; gap: 12px; padding: 12px; border: 1px solid #edf1ed; border-radius: 12px; }
 .student-avatar { width: 37px; height: 37px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 12px; color: #5f8a6f; background: #edf5ee; font-weight: 800; }

@@ -110,3 +110,34 @@ def test_legacy_database_rows_can_be_mapped_to_explicit_owner(tmp_path, monkeypa
     assert [item["title"] for item in repository.get_assignments("student-a")] == ["Bài cũ"]
     assert repository.get_schedule("student-b") == []
     assert repository.get_assignments("student-b") == []
+
+
+def test_sqlite_lookup_indexes_cover_owner_schedule_and_assignment_due_date(tmp_path):
+    db_path = tmp_path / "indexed.sqlite3"
+    StudyRepository(file_path=tmp_path / "study_data.json", db_path=db_path)
+
+    with sqlite3.connect(db_path) as connection:
+        schedule_indexes = {
+            row[1]: tuple(
+                column[2]
+                for column in connection.execute(f"PRAGMA index_info({row[1]})").fetchall()
+            )
+            for row in connection.execute("PRAGMA index_list(schedule)").fetchall()
+        }
+        assignment_indexes = {
+            row[1]: tuple(
+                column[2]
+                for column in connection.execute(f"PRAGMA index_info({row[1]})").fetchall()
+            )
+            for row in connection.execute("PRAGMA index_list(assignments)").fetchall()
+        }
+
+    assert schedule_indexes["schedule_owner_slot_idx"] == (
+        "owner_username", "session", "day", "period"
+    )
+    assert assignment_indexes["assignments_owner_due_idx"] == (
+        "owner_username", "due_date"
+    )
+    assert assignment_indexes["assignments_due_pending_idx"] == (
+        "due_date", "completed"
+    )
