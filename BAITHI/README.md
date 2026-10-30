@@ -26,11 +26,11 @@
 
 Giao diện dùng phong cách Modern Minimalist, nền sáng, điểm nhấn xanh mint/cam và sidebar điều hướng. Dashboard ưu tiên ba thông tin cần quét nhanh: lịch học sắp tới, bài sắp đến hạn và tiến độ tuần. Dữ liệu local dùng JSON để dễ học và chạy nhẹ; khi triển khai lớn có thể chuyển repository sang SQLite hoặc PostgreSQL.
 
-### Frontend React trên Vercel, API trên Render
+### Frontend React trên Vercel và Render, API dùng chung
 
-Frontend React + Vite nằm trong `web-client/`; FastAPI, Neon Postgres và reminder worker tiếp tục chạy trên Render. Frontend Vercel cung cấp giao diện đăng nhập/đăng ký, dashboard học sinh/phụ huynh, bài tập, yêu cầu liên kết, quản lý hồ sơ, bảo mật/PIN, thời khóa biểu và nhận diện lịch từ ảnh, thông báo/push/PWA, báo lỗi/góp ý và quản trị owner. Frontend gọi các API hiện có trên Render, không chuyển secrets hay dữ liệu sang Vercel. Service worker, manifest và icon PWA được phục vụ từ cùng domain Vercel để quyền push hoạt động ổn định.
+Frontend React + Vite nằm trong `web-client/` và được phục vụ như static site trên cả Vercel lẫn Render. Hai địa chỉ dùng cùng source/build, cùng gọi FastAPI backend và Neon Postgres trên Render, nên giao diện và dữ liệu nhất quán. Backend và reminder worker tiếp tục chạy trên Render. Frontend cung cấp đăng nhập/đăng ký, dashboard học sinh/phụ huynh, bài tập, quản lý hồ sơ, thời khóa biểu, thông báo/push/PWA và quản trị owner. Không chuyển secrets/database sang frontend.
 
-**Phân vai:** Vercel là địa chỉ người dùng truy cập và chỉ chứa frontend tĩnh; Render cung cấp API HTTPS, tác vụ nền và kết nối Neon. Không deploy secrets/database lên Vercel, không cache API chứa dữ liệu tài khoản, và không đổi URL backend khi chuyển domain frontend.
+**Phân vai:** Vercel và Render đều phục vụ frontend tĩnh; Render đồng thời cung cấp API HTTPS, tác vụ nền và kết nối Neon. Chọn một domain chính để chia sẻ cho người dùng và giữ `PUBLIC_APP_URL` trỏ về domain đó; các domain còn lại vẫn dùng được nhưng thông báo/push có thể mở domain chính. Mỗi domain có service worker/PWA riêng. Không deploy secrets/database lên frontend và không cache API chứa dữ liệu tài khoản.
 
 #### Chạy frontend local
 
@@ -58,9 +58,9 @@ Mở URL Vite in ra (thường là `http://localhost:5173`). Proxy dev chuyển 
 
 | Nền tảng | Biến | Giá trị/phạm vi |
 |---|---|---|
-| Vercel | `VITE_API_BASE_URL` | URL gốc HTTPS của Render Web Service, ví dụ `https://dong-hanh.onrender.com`, không có `/` cuối. Đây là cấu hình công khai được đóng gói vào JavaScript. |
-| Render Web Service | `STUDYSYNC_CORS_ORIGINS` | Origin frontend Vercel và custom domain, phân tách bằng dấu phẩy, không có path/dấu `/` cuối. |
-| Render Web Service + Worker | `PUBLIC_APP_URL` | URL frontend HTTPS trên Vercel (ưu tiên domain chính thức) để liên kết và icon trong push mở đúng giao diện. |
+| Vercel và Render Static Site | `VITE_API_BASE_URL` | Cùng đặt URL gốc HTTPS của Render Web Service, ví dụ `https://dong-hanh.onrender.com`, không có `/` cuối. Đây là cấu hình công khai được đóng gói vào JavaScript lúc build. |
+| Render Web Service | `STUDYSYNC_CORS_ORIGINS` | Origin frontend Vercel, Render Static Site và custom domain nếu có; phân tách bằng dấu phẩy, không có path/dấu `/` cuối. |
+| Render Web Service + Worker | `PUBLIC_APP_URL` | URL frontend HTTPS chính (khuyến nghị Vercel hoặc custom domain) để liên kết và push mở giao diện tại domain thống nhất. |
 | Render | `STUDYSYNC_DATABASE_URL`, `STUDYSYNC_SESSION_SECRET`, Firebase service account/VAPID private material, Gemini key, cron secrets | Giữ nguyên ở Render; không sao chép sang Vercel. |
 
 Trong CORS, thêm từng origin dùng thực tế, ví dụ `https://your-project.vercel.app,https://donghanhhoctap.com,https://www.donghanhhoctap.com`. Không thêm đường dẫn và không dùng wildcard `*`/`*.vercel.app`. Với Preview Deployment, chỉ thêm origin cụ thể cần kiểm thử rồi gỡ khi không còn dùng.
@@ -79,6 +79,13 @@ Trong CORS, thêm từng origin dùng thực tế, ví dụ `https://your-projec
 3. Thêm `VITE_API_BASE_URL` trong Vercel → Project → Settings → Environment Variables cho **Production** và **Preview** nếu cần. Cấu hình được nhúng lúc build nên phải redeploy sau khi sửa. Nếu bỏ sót, frontend hiện lỗi cấu hình rõ ràng thay vì âm thầm gửi request về domain Vercel.
 4. Cập nhật `STUDYSYNC_CORS_ORIGINS` trên Render Web Service với origin Vercel Preview chính xác, lưu và deploy backend; kiểm tra `/health` và preflight/các request API trong DevTools → Network.
 5. Mở Preview URL và kiểm thử checklist ở phần dưới. Sau khi đạt mới gắn domain chính thức, cập nhật CORS + `PUBLIC_APP_URL` thành domain đó, rồi redeploy Render và Vercel.
+
+#### Triển khai cùng frontend lên Render
+
+1. Blueprint tại `render.yaml` khai báo static site `studysync-web`; Root Directory `BAITHI/web-client`, Build Command `npm ci && npm run build`, Publish Directory `dist`, và rewrite các route SPA về `index.html`.
+2. Khi tạo mới Blueprint trên Render, nhập `VITE_API_BASE_URL` là URL HTTPS của Web Service `dong-hanh` (không có dấu `/` cuối). Nếu Blueprint đã tồn tại, `sync: false` không tự thêm biến khi sync lại; vào Render Dashboard → Static Site `studysync-web` → Environment, thêm biến này thủ công rồi redeploy.
+3. Sau khi site deploy lần đầu, lấy chính xác URL `*.onrender.com` do Render cấp. Thêm origin đó vào `STUDYSYNC_CORS_ORIGINS` của Web Service `dong-hanh` cùng origin Vercel; lưu và redeploy backend. Giữ `PUBLIC_APP_URL` trỏ về domain frontend chính đã chọn.
+4. Kiểm thử đăng nhập, API, tải lại trực tiếp các route như `/student/materials` và `/student/schedule`, rồi xác nhận filter tài liệu và các chức năng cập nhật vẫn hoạt động. Mỗi push lên nhánh deploy sẽ build lại Render Static Site và Vercel theo cấu hình auto-deploy của từng service.
 
 #### Đo độ trễ thời khóa biểu
 

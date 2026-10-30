@@ -1,5 +1,5 @@
-# Render chỉ chạy FastAPI backend và reminder worker; giao diện người dùng chạy trên Vercel.
-# Cấu hình Render cho StudySync, chạy trên gói Free.
+# Render chạy frontend static, FastAPI backend và reminder worker.
+# Frontend static và Vercel cùng phục vụ một bản giao diện; cả hai gọi chung API/Neon.
 #
 # Dữ liệu nằm trong Neon Postgres nên không mất khi deploy lại, dù gói Free
 # không có persistent disk. Nhờ vậy ứng dụng chạy được trên Free mà tài khoản,
@@ -11,13 +11,29 @@
 #   STUDYSYNC_DATABASE_URL    -> chuỗi kết nối lấy từ Neon Console
 #   STUDYSYNC_SESSION_SECRET  -> chuỗi ngẫu nhiên từ 32 ký tự trở lên
 #   TIMETABLE_GEMINI_API_KEY  -> Gemini API key, chỉ lưu trong Render Environment
+#   VITE_API_BASE_URL        -> URL HTTPS của web service dong-hanh
 #   STUDYSYNC_CORS_ORIGINS   -> danh sách domain frontend, phân tách bằng dấu phẩy
-#   PUBLIC_APP_URL            -> domain frontend HTTPS trên Vercel
+#   PUBLIC_APP_URL            -> domain frontend chính (Vercel) dùng trong push/deep links
 #
 # Xem README mục "Chuyển dữ liệu sang Neon" để biết cách lấy các giá trị này
 # và chuyển dữ liệu cũ lên Neon trước lần deploy đầu tiên.
 
 services:
+  - type: web
+    name: studysync-web
+    runtime: static
+    plan: free
+    rootDir: BAITHI/web-client
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
   - type: web
     name: dong-hanh
     runtime: python
