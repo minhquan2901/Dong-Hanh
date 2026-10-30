@@ -19,9 +19,8 @@
 # và chuyển dữ liệu cũ lên Neon trước lần deploy đầu tiên.
 
 services:
-  - type: web
+  - type: static
     name: studysync-web
-    runtime: static
     plan: free
     rootDir: BAITHI/web-client
     buildCommand: npm ci && npm run build
