@@ -110,6 +110,27 @@ def test_timetable_image_status_tracks_gemini_key(monkeypatch):
     assert client.get("/api/schedule/import-image/status").json() == {"available": True}
 
 
+def test_schedule_slots_endpoint_returns_authenticated_students_schedule(student_client):
+    from bus.study_bus import StudyBus
+
+    client, headers = student_client
+    StudyBus().upsert_schedule_slot("morning", "2", 1, "Toán", "Cô Lan", "student_ai")
+
+    response = client.get("/api/schedule/slots?username=student_ai", headers=headers)
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.json()["schedule"][0]["subject"] == "Toán"
+
+
+def test_schedule_slots_endpoint_requires_student_session(student_client):
+    client, _ = student_client
+
+    response = client.get("/api/schedule/slots?username=student_ai")
+
+    assert response.status_code == 401
+
+
 def test_timetable_image_requires_student_session(student_client, monkeypatch):
     client, _ = student_client
     monkeypatch.setenv("TIMETABLE_GEMINI_API_KEY", "test-key")

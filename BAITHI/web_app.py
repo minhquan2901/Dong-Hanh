@@ -13,7 +13,7 @@ from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -1233,6 +1233,17 @@ def delete_schedule_slot(
             "/student#schedule",
         )
     return {"message": "Đã xóa tiết học."}
+
+
+@app.get("/api/schedule/slots")
+def get_schedule_slots(
+    response: Response,
+    username: str = Query(...),
+    authorization: str | None = Header(default=None),
+):
+    _require_user_session(authorization, username, {"student"})
+    response.headers["Cache-Control"] = "private, no-store"
+    return {"schedule": StudyBus().schedule(username)}
 
 
 @app.post("/api/assignments")

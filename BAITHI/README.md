@@ -65,6 +65,13 @@ Mở URL Vite in ra (thường là `http://localhost:5173`). Proxy dev chuyển 
 
 Trong CORS, thêm từng origin dùng thực tế, ví dụ `https://your-project.vercel.app,https://donghanhhoctap.com,https://www.donghanhhoctap.com`. Không thêm đường dẫn và không dùng wildcard `*`/`*.vercel.app`. Với Preview Deployment, chỉ thêm origin cụ thể cần kiểm thử rồi gỡ khi không còn dùng.
 
+#### Danh mục tài liệu học tập
+
+- Trang **Tài liệu PDF** dùng `web-client/src/materialCatalog.json` để lọc theo môn, lớp 6–9 và tập. PDF mở từ Google Drive; file không được đóng gói vào Vercel.
+- Tải PDF lên Google Drive. Với từng file, chọn **Share → General access → Anyone with the link → Viewer**, sau đó sao chép đường dẫn chia sẻ.
+- Điền link chia sẻ vào thuộc tính `sourceUrl` của đúng tài liệu trong `web-client/src/materialCatalog.json`. Trang sẽ bật nút **Mở trên Drive** khi có URL.
+- Link chia sẻ công khai cho phép bất kỳ ai có link xem file; chỉ bật chia sẻ với những PDF bạn có quyền phân phối. Google Drive có thể tạm giới hạn lượt truy cập/tải cao bất thường; Google không công bố mức người dùng tải đồng thời được đảm bảo.
+
 #### Triển khai frontend lên Vercel
 
 1. Import repository hiện có vào Vercel; không cần tách repository. Chọn **Root Directory** `BAITHI/web-client`.

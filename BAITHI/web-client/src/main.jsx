@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api, clearApiCache } from "./api";
+import StudyCompanionDemo from "./StudyCompanionDemo";
+import materialCatalog from "./materialCatalog.json";
 import "./styles.css";
 
 const USER_KEY = "study_sync_user";
@@ -108,6 +110,7 @@ function App() {
   }, []);
 
   const pathname = window.location.pathname.replace(/\/+$/, "") || "/";
+  if (pathname === "/demo") return <StudyCompanionDemo />;
   if (pathname === "/owner") {
     return <div className="app-shell"><header className="topbar"><a className="brand" href="/"><span className="brand-mark">S</span><span>StudySync</span></a></header><OwnerPortal /><footer className="footer">StudySync · Khu vực quản trị · {APP_CREDIT}</footer></div>;
   }
@@ -135,7 +138,7 @@ function App() {
       <header className="topbar">
         <a className="brand" href="/" aria-label="StudySync trang chủ">
           <span className="brand-mark">S</span>
-          <span>StudySync</span>
+          <span className="brand-copy">Đồng hành<small>HỌC TẬP CÙNG BẠN</small></span>
         </a>
         <div className="topbar-right">
           <span className="connection"><i /> Học tập nhẹ nhàng hơn mỗi ngày</span>
@@ -204,6 +207,7 @@ function AuthPanel({ mode, setMode, authenticate, notice }) {
           <div><span className="point-icon">◷</span><span>Nhìn rõ tiến độ học tập</span></div>
           <div><span className="point-icon">♡</span><span>Kết nối phụ huynh và học sinh</span></div>
         </div>
+        <a className="demo-preview-link" href="/demo">Xem giao diện học sinh <span>→</span></a>
         <div className="welcome-art" aria-hidden="true"><span className="sun" /><span className="leaf leaf-one" /><span className="leaf leaf-two" /><span className="book">✦</span></div>
       </section>
       <section className="auth-card">
@@ -302,6 +306,7 @@ function Dashboard({ session, onSignOut, pathname }) {
       pathname === "/account"
       || pathname === "/notifications"
       || pathname === "/student/schedule"
+      || pathname === "/student/materials"
       || window.location.hash === "#schedule"
     ) return;
     refresh();
@@ -316,12 +321,26 @@ function Dashboard({ session, onSignOut, pathname }) {
       ? <SchedulePage session={session} />
       : <main className="dashboard"><div className="message message-error">Chỉ tài khoản học sinh mới có thời khóa biểu.</div></main>;
   }
+  if (pathname === "/student/materials") {
+    return user.role === "student"
+      ? <StudentMaterialsPage />
+      : <main className="dashboard"><div className="message message-error">Thư viện tài liệu dành cho học sinh.</div></main>;
+  }
+  if (pathname === "/student/tasks") {
+    return user.role === "student"
+      ? dashboard
+        ? <StudentDashboard data={dashboard} user={user} token={token} onChanged={() => setRefreshKey((value) => value + 1)} onSuccess={setSuccess} success={success} taskPage />
+        : error
+          ? <main className="dashboard study-dashboard"><div className="message message-error dashboard-message" role="alert">{error}<button className="text-button" onClick={() => void refresh({ forceRefresh: true })}>Thử lại</button></div></main>
+          : <main className="dashboard study-dashboard"><LoadingOverlay message="Đang tải nhiệm vụ..." /></main>
+      : <main className="dashboard"><div className="message message-error">Chỉ tài khoản học sinh mới có trang nhiệm vụ.</div></main>;
+  }
   if (pathname === "/notifications") {
     return <NotificationPage session={session} />;
   }
 
   return (
-    <main className="dashboard">
+    <main className="dashboard study-dashboard">
       <section className="dashboard-hero">
         <div>
           <p className="eyebrow">{user.role === "parent" ? "GÓC ĐỒNG HÀNH" : "KHÔNG GIAN HỌC TẬP"}</p>
@@ -332,6 +351,8 @@ function Dashboard({ session, onSignOut, pathname }) {
       </section>
       <nav className="app-nav" aria-label="Điều hướng chính">
         <a className="active" href={user.role === "parent" ? "/parent" : "/student"}>Tổng quan</a>
+        {user.role === "student" && <a href="/student/tasks">Nhiệm vụ</a>}
+        {user.role === "student" && <a href="/student/materials">Tài liệu PDF</a>}
         {user.role === "student" && <a href="/student/schedule">Thời khóa biểu</a>}
         <a href="/notifications">Thông báo</a>
         <a href="/account">Tài khoản & bảo mật</a>
@@ -584,6 +605,7 @@ function Field({ label, ...props }) {
 
 function SchedulePage({ session }) {
   const { user, token } = session;
+  const imageInput = useRef(null);
   const [initialScheduleCache] = useState(() => readScheduleCache(user.username));
   const [slots, setSlots] = useState(initialScheduleCache.slots);
   const [error, setError] = useState("");
@@ -596,6 +618,7 @@ function SchedulePage({ session }) {
   const [refreshing, setRefreshing] = useState(initialScheduleCache.hasCache);
   const [isStale, setIsStale] = useState(initialScheduleCache.hasCache);
   const [loadFailed, setLoadFailed] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const hasScheduleSnapshot = useRef(initialScheduleCache.hasCache);
 
   const load = useCallback(async (forceRefresh = false) => {
@@ -825,7 +848,16 @@ function SchedulePage({ session }) {
     {cacheError && <div className="message message-error" role="alert">{cacheError}</div>}
     {refreshing && <p className="schedule-sync-status" role="status"><span className="spinner" /> Đang đồng bộ lịch mới nhất; bạn vẫn có thể xem lịch đã lưu.</p>}
     {isStale && loadFailed && <p className="section-help">Đang sử dụng bản lịch đã lưu trên thiết bị do chưa kết nối được máy chủ.</p>}
-    <section className="panel">
+    <section className="schedule-editor-panel">
+      <div className="schedule-editor-heading">
+        <div><p className="eyebrow">QUẢN LÝ LỊCH HỌC</p><h2>{isEditing ? "Chỉnh sửa thời khóa biểu" : "Lịch học của bạn"}</h2><p>Thêm tiết thủ công hoặc nhập nhanh từ ảnh thời khóa biểu.</p></div>
+        <div className="schedule-editor-actions">
+          <button className={`button schedule-edit-button${isEditing ? " selected" : ""}`} type="button" onClick={() => setIsEditing(!isEditing)}><span aria-hidden="true">{isEditing ? "✓" : "✎"}</span>{isEditing ? "Xong chỉnh sửa" : "Chỉnh sửa thời khóa biểu"}</button>
+          <button className="button schedule-ai-button" type="button" onClick={() => imageInput.current?.click()} disabled={busy}><span aria-hidden="true">✦</span>Tạo từ ảnh</button>
+          <input ref={imageInput} className="schedule-hidden-file" type="file" accept="image/jpeg,image/png,image/webp" onChange={importImage} disabled={busy} aria-label="Chọn ảnh thời khóa biểu" />
+        </div>
+      </div>
+      {isEditing && <div className="schedule-editor-body">
       <div className="panel-heading"><div><p className="eyebrow">THÊM TIẾT HỌC</p><h2>Nhập lịch học</h2></div></div>
       <form className="settings-form schedule-form" onSubmit={queueSlot}>
         <div className="form-row">
@@ -845,7 +877,6 @@ function SchedulePage({ session }) {
           <button className="button button-quiet" type="button" onClick={savePendingSlots} disabled={busy}>Lưu tất cả ({pendingSlots.length})</button>
           <button className="button button-quiet" type="button" onClick={() => setPendingSlots([])} disabled={busy || !pendingSlots.length}>Xóa danh sách</button>
           <button className="button button-quiet" type="button" onClick={addSlot} disabled={busy}>Lưu tiết học ngay</button>
-          <label className={`button button-quiet file-button ${busy ? "disabled" : ""}`}>Tạo thời khóa biểu từ ảnh<input type="file" accept="image/jpeg,image/png,image/webp" onChange={importImage} disabled={busy} /></label>
         </div>
         {pendingSlots.length > 0 && <div className="schedule-queue" aria-live="polite">
           <strong>Danh sách chờ lưu ({pendingSlots.length})</strong>
@@ -855,6 +886,7 @@ function SchedulePage({ session }) {
           </div>)}
         </div>}
       </form>
+      </div>}
     </section>
     {preview.length > 0 && <section className="panel">
       <div className="panel-heading"><div><p className="eyebrow">KIỂM TRA KẾT QUẢ AI</p><h2>Xem trước lịch nhận diện</h2></div><button className="button button-primary" onClick={savePreview} disabled={busy}>Lưu {preview.length} tiết</button></div>
@@ -863,7 +895,7 @@ function SchedulePage({ session }) {
     </section>}
     <section className="panel">
       <div className="panel-heading"><div><p className="eyebrow">LỊCH HIỆN TẠI</p><h2>{slots.length} tiết học</h2></div><button className="button button-quiet" onClick={() => void load(true)} disabled={busy || refreshing}>{refreshing ? "Đang tải..." : "Làm mới"}</button></div>
-      {loadFailed && !hasScheduleSnapshot.current ? <EmptyState title="Chưa tải được thời khóa biểu" text="Danh sách chưa bị xóa. Kiểm tra kết nối rồi thử tải lại." /> : slots.length ? <ScheduleGrid slots={slots} onRemove={removeSlot} /> : <EmptyState title="Chưa có lịch học" text="Thêm tiết học bằng biểu mẫu hoặc nhận diện từ ảnh." />}
+      {loadFailed && !hasScheduleSnapshot.current ? <EmptyState title="Chưa tải được thời khóa biểu" text="Danh sách chưa bị xóa. Kiểm tra kết nối rồi thử tải lại." /> : slots.length ? <ScheduleGrid slots={slots} onRemove={isEditing ? removeSlot : undefined} /> : <EmptyState title="Chưa có lịch học" text="Thêm tiết học bằng biểu mẫu hoặc nhận diện từ ảnh." />}
     </section>
   </PageFrame>;
 }
@@ -883,6 +915,18 @@ function mergeScheduleSlots(current, incoming) {
     slotsByPosition.set(`${slot.session}:${slot.day}:${slot.period}`, slot);
   });
   return Array.from(slotsByPosition.values());
+}
+
+function scheduleSubjectStyle(subject) {
+  const name = String(subject || "").toLowerCase();
+  if (name.includes("toán")) return { tone: "mint", icon: "∑" };
+  if (name.includes("anh") || name.includes("ngoại ngữ")) return { tone: "blue", icon: "文" };
+  if (name.includes("văn")) return { tone: "peach", icon: "文" };
+  if (name.includes("lý")) return { tone: "lavender", icon: "⚛" };
+  if (name.includes("hóa")) return { tone: "yellow", icon: "✳" };
+  if (name.includes("sử") || name.includes("địa")) return { tone: "peach", icon: "◷" };
+  if (name.includes("thể dục")) return { tone: "yellow", icon: "↗" };
+  return { tone: "mint", icon: "✦" };
 }
 
 function ScheduleGrid({ slots, onRemove }) {
@@ -912,11 +956,15 @@ function ScheduleGrid({ slots, onRemove }) {
               <th scope="row">{period}</th>
               {["2", "3", "4", "5", "6", "7"].map((day) => {
                 const lessons = sessionSlots.filter((slot) => String(slot.day) === day && Number(slot.period) === period);
-                return <td key={day}>{lessons.map((slot, index) => <article className="schedule-cell-lesson" key={`${slot.id || slot.subject}-${index}`}>
+                return <td key={day}>{lessons.map((slot, index) => {
+                  const subjectStyle = scheduleSubjectStyle(slot.subject);
+                  return <article className={`schedule-cell-lesson tone-${subjectStyle.tone}`} key={`${slot.id || slot.subject}-${index}`}>
+                  <span className="schedule-lesson-icon" aria-hidden="true">{subjectStyle.icon}</span>
                   <strong>{slot.subject || "Chưa có tên môn"}</strong>
                   {slot.lecturer && <small>{slot.lecturer}</small>}
                   {onRemove && <button className="button button-quiet button-small" onClick={() => onRemove(slot)} aria-label={`Xóa ${slot.subject || "tiết học"} thứ ${day}, tiết ${period}`}>Xóa</button>}
-                </article>)}</td>;
+                </article>;
+                })}</td>;
               })}
             </tr>)}</tbody>
           </table>
@@ -1361,7 +1409,7 @@ function LoadingOverlay({ message = "Đang tải dữ liệu..." }) {
   </div>;
 }
 
-function StudentDashboard({ data, user, token, onChanged, onSuccess }) {
+function StudentDashboard({ data, user, token, onChanged, onSuccess, success, taskPage = false }) {
   const stats = data.stats || {};
   const [tasks, setTasks] = useState(data.assignments || []);
   const [creating, setCreating] = useState(false);
@@ -1374,13 +1422,16 @@ function StudentDashboard({ data, user, token, onChanged, onSuccess }) {
   const [showCreate, setShowCreate] = useState(false);
   const [busyId, setBusyId] = useState("");
   const [taskError, setTaskError] = useState("");
+  const [deleteCandidate, setDeleteCandidate] = useState(null);
+  const [taskFilter, setTaskFilter] = useState("all");
 
   const updateTask = async (task, action) => {
     setBusyId(String(task.id));
     setTaskError("");
-    const originalIndex = tasks.findIndex((item) => String(item.id) === String(task.id));
     if (action === "delete") {
-      setTasks((current) => current.filter((item) => String(item.id) !== String(task.id)));
+      setTasks((current) => current.map((item) => String(item.id) === String(task.id)
+        ? { ...item, deleting: true }
+        : item));
     } else {
       const completed = !task.completed;
       setTasks((current) => current.map((item) => String(item.id) === String(task.id)
@@ -1390,6 +1441,7 @@ function StudentDashboard({ data, user, token, onChanged, onSuccess }) {
     try {
       if (action === "delete") {
         await api(`/api/assignments/${encodeURIComponent(task.id)}?username=${encodeURIComponent(user.username)}`, { method: "DELETE", token });
+        setTasks((current) => current.filter((item) => String(item.id) !== String(task.id)));
         onSuccess("Đã xóa nhiệm vụ.");
       } else {
         await api(`/api/assignments/${encodeURIComponent(task.id)}`, {
@@ -1402,9 +1454,9 @@ function StudentDashboard({ data, user, token, onChanged, onSuccess }) {
       onChanged();
     } catch (error) {
       if (action === "delete") {
-        setTasks((current) => current.some((item) => String(item.id) === String(task.id))
-          ? current
-          : [...current.slice(0, Math.max(originalIndex, 0)), task, ...current.slice(Math.max(originalIndex, 0))]);
+        setTasks((current) => current.map((item) => String(item.id) === String(task.id)
+          ? { ...item, deleting: false }
+          : item));
       } else {
         setTasks((current) => current.map((item) => String(item.id) === String(task.id)
           ? { ...item, completed: Boolean(task.completed) }
@@ -1419,14 +1471,15 @@ function StudentDashboard({ data, user, token, onChanged, onSuccess }) {
   const createTask = async (event) => {
     event.preventDefault();
     setTaskError("");
-    const values = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const values = new FormData(form);
     const payload = {
       title: String(values.get("title")).trim(),
       subject: String(values.get("subject")).trim(),
       description: String(values.get("description") || "").trim(),
       due_date: String(values.get("due_date")),
       due_time: String(values.get("due_time") || "23:59"),
-      priority: String(values.get("priority")),
+      priority: String(values.get("priority") || "Trung bình"),
       username: user.username,
     };
     const optimisticId = `optimistic-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -1439,6 +1492,7 @@ function StudentDashboard({ data, user, token, onChanged, onSuccess }) {
         setTasks((current) => current.map((task) => task.id === optimisticId ? result.assignment : task));
       }
       setShowCreate(false);
+      form.reset();
       onSuccess("Đã thêm nhiệm vụ mới.");
       onChanged();
     } catch (error) {
@@ -1448,6 +1502,52 @@ function StudentDashboard({ data, user, token, onChanged, onSuccess }) {
       setCreating(false);
     }
   };
+
+  const localToday = new Date();
+  localToday.setMinutes(localToday.getMinutes() - localToday.getTimezoneOffset());
+  const today = localToday.toISOString().slice(0, 10);
+
+  if (taskPage) {
+    const visibleTasks = tasks.filter((task) => (
+      taskFilter === "all"
+      || (taskFilter === "pending" && !task.completed)
+      || (taskFilter === "completed" && task.completed)
+    ));
+    return <main className="dashboard study-dashboard task-management-page">
+      <div className="task-page-back"><a className="button button-quiet" href="/student">← Tổng quan</a><span>Đồng hành học tập cùng bạn</span></div>
+      <section className="task-page-heading">
+        <div><p className="eyebrow">MỖI VIỆC NHỎ, MỘT BƯỚC TIẾN</p><h1>Nhiệm vụ học tập <span>✦</span></h1><p>Ghi lại điều cần làm, rồi tự hào đánh dấu khi bạn hoàn thành.</p></div>
+        <div className="task-page-count"><strong>{pendingTasks.length}</strong><span>việc đang chờ</span></div>
+      </section>
+      {success && <div className="message message-success task-page-message" role="status">{success}</div>}
+      <form className="task-quick-add" onSubmit={createTask}>
+        <label className="task-quick-title"><span className="task-add-mark">＋</span><input name="title" required maxLength="120" placeholder="Thêm nhiệm vụ học tập mới hôm nay..." aria-label="Tên nhiệm vụ mới" /></label>
+        <div className="task-quick-options">
+          <label className="task-quick-field"><span>Môn học</span><input name="subject" required maxLength="80" placeholder="Ví dụ: Toán" /></label>
+          <label className="task-quick-field"><span>Hạn hoàn thành</span><input name="due_date" type="date" required min={today} defaultValue={today} /></label>
+          <input type="hidden" name="priority" value="Trung bình" />
+          <button className="button button-primary task-add-button" type="submit" disabled={creating}>{creating ? <><span className="spinner" /> Đang thêm</> : "Thêm nhiệm vụ"}</button>
+        </div>
+      </form>
+      {taskError && <p className="inline-error task-page-error" role="alert">{taskError}</p>}
+      <section className="task-summary-row" aria-label="Tổng quan nhiệm vụ">
+        <article><span className="task-summary-dot pending" /><span>Đang chờ</span><strong>{pendingTasks.length}</strong></article>
+        <article><span className="task-summary-dot done" /><span>Đã hoàn thành</span><strong>{completedTasks}</strong></article>
+        <article><span className="task-summary-dot progress" /><span>Tiến độ</span><strong>{completionRate}%</strong></article>
+      </section>
+      <section className="task-list-panel">
+        <div className="task-list-heading"><div><p className="eyebrow">KẾ HOẠCH CỦA BẠN</p><h2>Danh sách nhiệm vụ</h2></div>
+          <div className="task-filter-tabs" role="group" aria-label="Lọc nhiệm vụ">
+            {[["all", "Tất cả"], ["pending", "Đang làm"], ["completed", "Đã xong"]].map(([value, label]) => <button key={value} type="button" className={taskFilter === value ? "active" : ""} onClick={() => setTaskFilter(value)}>{label}</button>)}
+          </div>
+        </div>
+        {visibleTasks.length ? <AssignmentList tasks={visibleTasks} busyId={busyId} onToggle={(task) => void updateTask(task, "toggle")} onDelete={setDeleteCandidate} /> : (
+          <div className="task-empty-state"><span className="task-empty-art">✿</span><strong>{taskFilter === "completed" ? "Chưa có nhiệm vụ hoàn thành" : taskFilter === "pending" ? "Bạn đã hoàn thành mọi việc!" : "Hôm nay thật thoáng đãng"}</strong><p>{taskFilter === "pending" ? "Tuyệt vời! Bạn có thể thêm nhiệm vụ mới khi sẵn sàng." : "Thêm một nhiệm vụ nhỏ để bắt đầu kế hoạch học tập."}</p></div>
+        )}
+      </section>
+      {deleteCandidate && <TaskDeleteDialog task={deleteCandidate} busy={busyId === String(deleteCandidate.id)} onCancel={() => setDeleteCandidate(null)} onConfirm={async () => { const task = deleteCandidate; setDeleteCandidate(null); await updateTask(task, "delete"); }} />}
+    </main>;
+  }
 
   return <>
     <section className="stats-grid">
@@ -1473,7 +1573,7 @@ function StudentDashboard({ data, user, token, onChanged, onSuccess }) {
             <label className="field"><span>Độ ưu tiên</span><select name="priority"><option>Trung bình</option><option>Cao</option><option>Thấp</option></select></label>
           </div>
           <div className="form-row">
-            <label className="field"><span>Hạn hoàn thành</span><input name="due_date" type="date" required min={new Date().toISOString().slice(0, 10)} /></label>
+            <label className="field"><span>Hạn hoàn thành</span><input name="due_date" type="date" required min={today} /></label>
             <label className="field"><span>Giờ</span><input name="due_time" type="time" defaultValue="23:59" /></label>
           </div>
           <label className="field"><span>Ghi chú (không bắt buộc)</span><textarea name="description" rows="2" maxLength="500" placeholder="Thêm chi tiết để dễ nhớ..." /></label>
@@ -1481,12 +1581,7 @@ function StudentDashboard({ data, user, token, onChanged, onSuccess }) {
         </form>}
         {taskError && <p className="inline-error" role="alert">{taskError}</p>}
         {tasks.length ? <div className="task-list">
-          {tasks.map((task) => <article className={`task-row ${task.completed ? "is-complete" : ""}`} key={task.id}>
-            <button className={`check-button ${task.completed ? "checked" : ""}`} aria-label={task.completed ? "Đánh dấu chưa hoàn thành" : "Đánh dấu hoàn thành"} disabled={busyId === String(task.id)} onClick={() => updateTask(task, "toggle")}>{task.completed ? "✓" : ""}</button>
-            <div className="task-main"><strong>{task.title}</strong><span>{task.subject || "Chưa phân loại"} · Hạn {task.due_date || "chưa đặt"}{task.due_time ? `, ${task.due_time}` : ""}</span></div>
-            <span className={`priority priority-${String(task.priority || "trung bình").toLowerCase().replace(/\s/g, "-")}`}>{task.completed ? "Hoàn thành" : task.priority || "Trung bình"}</span>
-            <button className="icon-button" aria-label={`Xóa ${task.title}`} disabled={busyId === String(task.id)} onClick={() => updateTask(task, "delete")}>×</button>
-          </article>)}
+          <AssignmentList tasks={tasks} busyId={busyId} onToggle={(task) => void updateTask(task, "toggle")} onDelete={setDeleteCandidate} />
         </div> : <EmptyState title="Chưa có nhiệm vụ nào" text="Thêm một việc cần làm để bắt đầu theo dõi tiến độ." />}
       </div>
       <aside className="side-column">
@@ -1494,7 +1589,70 @@ function StudentDashboard({ data, user, token, onChanged, onSuccess }) {
         <LinkRequests user={user} token={token} onChanged={onChanged} />
       </aside>
     </section>
+    {deleteCandidate && <TaskDeleteDialog task={deleteCandidate} busy={busyId === String(deleteCandidate.id)} onCancel={() => setDeleteCandidate(null)} onConfirm={async () => { const task = deleteCandidate; setDeleteCandidate(null); await updateTask(task, "delete"); }} />}
   </>;
+}
+
+function AssignmentList({ tasks, busyId, onToggle, onDelete }) {
+  return <div className="task-list assignment-card-list">
+    {tasks.map((task) => <article className={`task-row assignment-card ${task.completed ? "is-complete" : ""} ${task.deleting ? "is-deleting" : ""}`} key={task.id}>
+      <button className={`check-button ${task.completed ? "checked" : ""}`} aria-label={task.completed ? "Đánh dấu chưa hoàn thành" : "Đánh dấu hoàn thành"} disabled={busyId === String(task.id)} onClick={() => onToggle(task)}>{task.completed ? "✓" : ""}</button>
+      <div className="task-main"><strong>{task.title}</strong><span>{task.due_date ? `Hạn ${task.due_date}${task.due_time ? ` · ${task.due_time}` : ""}` : "Chưa đặt hạn"}</span></div>
+      <span className="task-subject-tag">{task.subject || "Chưa phân loại"}</span>
+      <span className={`priority priority-${String(task.priority || "trung bình").toLowerCase().replace(/\s/g, "-")}`}>{task.completed ? "Hoàn thành" : task.priority || "Trung bình"}</span>
+      <button className="task-delete-button" aria-label={`Xóa ${task.title}`} title="Xóa nhiệm vụ" disabled={busyId === String(task.id)} onClick={() => onDelete(task)}>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m3 0-1 14H6L5 6m4 4v6m6-6v6" /></svg>
+      </button>
+    </article>)}
+  </div>;
+}
+
+function TaskDeleteDialog({ task, busy, onCancel, onConfirm }) {
+  return <div className="task-delete-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onCancel(); }}>
+    <section className="task-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="task-delete-title" aria-describedby="task-delete-description">
+      <span className="task-delete-warning" aria-hidden="true">!</span>
+      <h2 id="task-delete-title">Xóa nhiệm vụ này?</h2>
+      <p id="task-delete-description"><strong>{task.title}</strong> sẽ bị xóa khỏi danh sách của bạn. Thao tác này không thể hoàn tác.</p>
+      <div><button type="button" className="button button-quiet" onClick={onCancel} disabled={busy}>Giữ lại</button><button type="button" className="button task-delete-confirm" onClick={onConfirm} disabled={busy}>{busy ? "Đang xóa..." : "Xóa nhiệm vụ"}</button></div>
+    </section>
+  </div>;
+}
+
+function StudentMaterialsPage() {
+  const [subjectFilter, setSubjectFilter] = useState("all");
+  const [gradeFilter, setGradeFilter] = useState("all");
+  const [volumeFilter, setVolumeFilter] = useState("all");
+  const materials = materialCatalog;
+  const visibleMaterials = materials.filter((material) => (
+    (subjectFilter === "all" || material.subject === subjectFilter)
+    &&
+    (gradeFilter === "all" || String(material.grade) === gradeFilter)
+    && (volumeFilter === "all" || String(material.volume || "") === volumeFilter)
+  ));
+
+  return <main className="dashboard study-dashboard materials-page">
+    <div className="materials-back"><a className="button button-quiet" href="/student">← Tổng quan</a><span>Đồng hành học tập cùng bạn</span></div>
+    <section className="materials-page-heading">
+      <div><p className="eyebrow">THƯ VIỆN HỌC TẬP</p><h1>Tài liệu học tập <span>✦</span></h1><p>Tìm sách theo môn, lớp và tập để học đúng phần bạn cần.</p></div>
+      <span className="materials-total">{materials.length} tài liệu</span>
+    </section>
+    <div className="materials-source-note" role="note">Tài liệu được mở từ Google Drive để không làm nặng website. Bạn có thể thêm link chia sẻ Drive cho từng sách.</div>
+    <section className="materials-library">
+      <div className="materials-toolbar">
+        <div><span className="eyebrow">SÁCH THAM KHẢO · LỚP 6–9</span><strong>{visibleMaterials.length} tài liệu phù hợp</strong></div>
+        <div className="materials-filters">
+          <label><span>Môn</span><select value={subjectFilter} onChange={(event) => setSubjectFilter(event.target.value)}><option value="all">Tất cả môn</option>{[...new Set(materials.map((material) => material.subject))].map((subject) => <option key={subject} value={subject}>{subject}</option>)}</select></label>
+          <label><span>Lớp</span><select value={gradeFilter} onChange={(event) => setGradeFilter(event.target.value)}><option value="all">Tất cả lớp</option>{[6, 7, 8, 9].map((grade) => <option key={grade} value={grade}>Lớp {grade}</option>)}</select></label>
+          <label><span>Tập</span><select value={volumeFilter} onChange={(event) => setVolumeFilter(event.target.value)}><option value="all">Tất cả tập</option><option value="1">Tập 1</option><option value="2">Tập 2</option><option value="">Không chia tập</option></select></label>
+        </div>
+      </div>
+      {visibleMaterials.length ? <div className="materials-card-list">{visibleMaterials.map((material) => <article className="learning-material-card" key={material.id}>
+        <span className="learning-material-pdf">PDF</span>
+        <div className="learning-material-info"><strong>{material.title}</strong><span>{material.subject} <i>·</i> Lớp {material.grade}{material.volume ? ` · Tập ${material.volume}` : ""}</span><small>{material.sourceUrl ? "PDF trên Google Drive" : "Chưa thêm link Google Drive"}</small></div>
+        {material.sourceUrl ? <a className="button button-primary" href={material.sourceUrl} target="_blank" rel="noreferrer">Mở trên Drive ↗</a> : <button className="button button-quiet" type="button" disabled title="Thêm link chia sẻ Google Drive cho tài liệu này">Chưa có link Drive</button>}
+      </article>)}</div> : <div className="materials-empty"><span>▤</span><strong>Không tìm thấy tài liệu phù hợp</strong><p>Thử đổi bộ lọc môn, lớp hoặc tập nhé.</p></div>}
+    </section>
+  </main>;
 }
 
 function ParentDashboard({ data, user, token }) {
